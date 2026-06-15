@@ -1,0 +1,49 @@
+# Python
+*.py[cod]
+*$py.class
+**/__pycache__/
+*.so
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Virtual Environment
+venv/
+.venv/
+env/
+.env
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+.tox/
+
+# IDE and Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Media and Static Files
+media/
+staticfiles/
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Agents & Skills lock (auto-generated)
+skills-lock.json
+.agents/

@@ -1,0 +1,180 @@
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+from .models import Task, Comment, Attachment, TaskLink, Team
+
+User = get_user_model()
+
+
+class UserMiniSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(read_only=True)
+    avatar_initials = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'full_name', 'avatar_initials', 'email']
+
+
+class TeamSerializer(serializers.ModelSerializer):
+    member_count = serializers.SerializerMethodField()
+    lead = UserMiniSerializer(read_only=True)
+    lead_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='lead', write_only=True, required=False, allow_null=True)
+
+    class Meta:
+        model = Team
+        fields = ['id', 'name', 'description', 'lead', 'lead_id', 'member_count', 'is_active']
+
+    def get_member_count(self, obj):
+        return obj.members.count()
+
+
+class TeamDetailSerializer(TeamSerializer):
+    members = UserMiniSerializer(many=True, read_only=True)
+
+    class Meta(TeamSerializer.Meta):
+        fields = TeamSerializer.Meta.fields + ['members']
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = UserMiniSerializer(read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = ['id', 'task_id', 'author', 'body', 'is_edited', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'task_id', 'author', 'is_edited', 'created_at', 'updated_at']
+
+
+class AttachmentSerializer(serializers.ModelSerializer):
+    uploaded_by = UserMiniSerializer(read_only=True)
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Attachment
+        fields = ['id', 'filename', 'size', 'content_type', 'uploaded_by', 'uploaded_at', 'url']
+
+    def get_url(self, obj):
+        request = self.context.get('request')
+        if obj.file and request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url if obj.file else None
+
+
+class TaskLinkSerializer(serializers.ModelSerializer):
+    target_task = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskLink
+        fields = ['id', 'relation', 'target_task']
+
+    def get_target_task(self, obj):
+        t = obj.target_task
+        return {'id': t.id, 'key': t.key, 'title': t.title, 'status': t.status}
+
+
+class LinkedBidMiniSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    kc_brand = serializers.CharField()
+    status = serializers.CharField()
+    opportunity_title = serializers.SerializerMethodField()
+
+    def get_opportunity_title(self, obj):
+        return obj.opportunity.title if obj.opportunity_id else None
+
+
+class TaskCardSerializer(serializers.ModelSerializer):
+    """Lightweight card for the board."""
+    assignee = UserMiniSerializer(read_only=True)
+    is_overdue = serializers.SerializerMethodField()
+    comment_count = serializers.IntegerField(read_only=True, default=0)
+    attachment_count = serializers.IntegerField(read_only=True, default=0)
+    team_name = serializers.CharField(source='team.name', read_only=True, default=None)
+    linked_bid_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Task
+        fields = [
+            'id', 'key', 'title', 'status', 'priority', 'assignee', 'labels',
+            'due_date', 'is_overdue', 'position', 'team_name', 'linked_bid_label',
+            'comment_count', 'attachment_count',
+        ]
+
+    def get_is_overdue(self, obj):
+        return bool(obj.due_date and obj.status != 'done' and obj.due_date < timezone.now())
+
+    def get_linked_bid_label(self, obj):
+        if obj.linked_bid_id and obj.linked_bid:
+            return obj.linked_bid.kc_brand or f"Bid #{obj.linked_bid_id}"
+        return None
+
+
+class TaskDetailSerializer(serializers.ModelSerializer):
+    assignee = UserMiniSerializer(read_only=True)
+    reporter = UserMiniSerializer(read_only=True)
+    created_by = UserMiniSerializer(read_only=True)
+    team = TeamSerializer(read_only=True)
+    comments = CommentSerializer(many=True, read_only=True)
+    attachments = AttachmentSerializer(many=True, read_only=True)
+    links = serializers.SerializerMethodField()
+    is_overdue = serializers.SerializerMethodField()
+    linked_bid = serializers.SerializerMethodField()
+
+    # write-only
+    assignee_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='assignee', write_only=True, required=False, allow_null=True)
+    reporter_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='reporter', write_only=True, required=False, allow_null=True)
+    team_id = serializers.PrimaryKeyRelatedField(
+        queryset=Team.objects.all(), source='team', write_only=True, required=False, allow_null=True)
+    linked_bid_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+
+    class Meta:
+        model = Task
+        fields = [
+            'id', 'key', 'title', 'description', 'status', 'priority',
+            'assignee', 'reporter', 'created_by', 'team', 'linked_bid',
+            'labels', 'start_date', 'due_date', 'is_overdue', 'position',
+            'comments', 'attachments', 'links', 'created_at', 'updated_at',
+            'assignee_id', 'reporter_id', 'team_id', 'linked_bid_id',
+        ]
+        read_only_fields = ['id', 'key', 'status', 'created_by', 'position', 'created_at', 'updated_at']
+
+    def get_links(self, obj):
+        return TaskLinkSerializer(obj.outgoing_links.select_related('target_task'), many=True).data
+
+    def get_is_overdue(self, obj):
+        return bool(obj.due_date and obj.status != 'done' and obj.due_date < timezone.now())
+
+    def get_linked_bid(self, obj):
+        if not obj.linked_bid_id or not obj.linked_bid:
+            return None
+        b = obj.linked_bid
+        return {
+            'id': b.id,
+            'kc_brand': b.kc_brand,
+            'status': b.status,
+            'opportunity_title': b.opportunity.title if b.opportunity_id else None,
+        }
+
+
+class TaskCreateSerializer(serializers.ModelSerializer):
+    assignee_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='assignee', required=False, allow_null=True)
+    team_id = serializers.PrimaryKeyRelatedField(
+        queryset=Team.objects.all(), source='team', required=False, allow_null=True)
+    linked_bid_id = serializers.IntegerField(required=False, allow_null=True)
+    status = serializers.ChoiceField(choices=Task.STATUS, required=False)
+
+    class Meta:
+        model = Task
+        fields = [
+            'title', 'description', 'priority', 'status', 'assignee_id', 'team_id',
+            'linked_bid_id', 'labels', 'start_date', 'due_date',
+        ]
+
+    def validate(self, attrs):
+        start = attrs.get('start_date')
+        due = attrs.get('due_date')
+        if start and due and due.date() < start:
+            raise serializers.ValidationError({'due_date': 'Due date must be on or after the start date.'})
+        return attrs

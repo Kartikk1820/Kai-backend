@@ -1,0 +1,115 @@
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from django.utils.crypto import get_random_string
+from django.contrib.auth.password_validation import validate_password
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from core.models import Role, UserRole
+
+User = get_user_model()
+
+
+class RoleSerializer(serializers.ModelSerializer):
+    member_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Role
+        fields = ['id', 'name', 'description', 'permission_keys', 'is_system', 'member_count']
+        read_only_fields = ['is_system', 'member_count']
+
+    def get_member_count(self, obj):
+        return obj.members.count()
+
+
+class UserMiniSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(read_only=True)
+    avatar_initials = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'full_name', 'avatar_initials', 'role']
+
+
+class MeSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(read_only=True)
+    avatar_initials = serializers.CharField(read_only=True)
+    permissions = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
+    is_manager = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
+            'role', 'sub_position', 'entity', 'manager', 'phone_number',
+            'must_change_password', 'is_manager', 'permissions', 'roles',
+        ]
+
+    def get_permissions(self, obj):
+        return sorted(obj.effective_permissions())
+
+    def get_roles(self, obj):
+        return list(obj.user_roles.values_list('role__name', flat=True))
+
+    def get_is_manager(self, obj):
+        return obj.subordinates.exists()
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    full_name = serializers.CharField(read_only=True)
+    role_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Role.objects.all(), write_only=True, required=False
+    )
+    roles = serializers.SerializerMethodField()
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 'full_name', 'role',
+            'sub_position', 'manager', 'entity', 'phone_number', 'date_of_joining',
+            'is_active', 'must_change_password', 'password', 'role_ids', 'roles',
+        ]
+        read_only_fields = ['must_change_password']
+
+    def get_roles(self, obj):
+        return list(obj.user_roles.values_list('role__name', flat=True))
+
+    def create(self, validated_data):
+        role_objs = validated_data.pop('role_ids', [])
+        password = validated_data.pop('password', None) or get_random_string(12)
+        user = User(**validated_data)
+        user.must_change_password = True
+        user.set_password(password)
+        user.save()
+        for r in role_objs:
+            UserRole.objects.get_or_create(user=user, role=r)
+        self._plain_password = password  # surfaced by the view for the admin to share
+        return user
+
+    def update(self, instance, validated_data):
+        role_objs = validated_data.pop('role_ids', None)
+        validated_data.pop('password', None)  # password changes go through reset endpoint
+        for k, v in validated_data.items():
+            setattr(instance, k, v)
+        instance.save()
+        if role_objs is not None:
+            instance.user_roles.all().delete()
+            for r in role_objs:
+                UserRole.objects.get_or_create(user=instance, role=r)
+        return instance
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_new_password(self, value):
+        validate_password(value, self.context['request'].user)
+        return value
+
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data['user'] = MeSerializer(self.user).data
+        return data
