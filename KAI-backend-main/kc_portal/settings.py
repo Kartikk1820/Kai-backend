@@ -146,7 +146,7 @@ MAX_ATTACHMENT_SIZE = config('MAX_ATTACHMENT_SIZE', default=10 * 1024 * 1024, ca
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'core.authentication.CustomJWTAuthentication',
     ),
     'DEFAULT_RENDERER_CLASSES': (
         'core.renderers.StandardizedJSONRenderer',

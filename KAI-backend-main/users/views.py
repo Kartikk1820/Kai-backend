@@ -17,7 +17,7 @@ from core.services import write_audit
 from core.models import Role
 from .serializers import (
     CustomTokenObtainPairSerializer, MeSerializer, ChangePasswordSerializer,
-    AdminUserSerializer, RoleSerializer,
+    AdminUserSerializer, RoleSerializer, CustomTokenRefreshSerializer
 )
 
 User = get_user_model()
@@ -32,7 +32,9 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
 
 class CustomTokenRefreshView(TokenRefreshView):
-    @extend_schema(summary="Refresh token", request=TokenRefreshSerializer, responses={200: TokenRefreshSerializer})
+    serializer_class = CustomTokenRefreshSerializer
+
+    @extend_schema(summary="Refresh token", request=CustomTokenRefreshSerializer, responses={200: CustomTokenRefreshSerializer})
     def post(self, request, *args, **kwargs):
         return super().post(request, *args, **kwargs)
 

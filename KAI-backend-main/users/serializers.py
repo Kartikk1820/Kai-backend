@@ -108,7 +108,33 @@ class ChangePasswordSerializer(serializers.Serializer):
         return value
 
 
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import InvalidToken
+
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken(attrs['refresh'])
+        user_id = refresh.payload.get('user_id')
+        pw_hash = refresh.payload.get('pw_hash')
+        if user_id and pw_hash:
+            try:
+                user = User.objects.get(id=user_id)
+                if pw_hash != user.password[-10:]:
+                    raise InvalidToken('Password has changed. Please log in again.')
+            except User.DoesNotExist:
+                pass
+        return data
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['pw_hash'] = user.password[-10:]
+        return token
+
     def validate(self, attrs):
         data = super().validate(attrs)
         data['user'] = MeSerializer(self.user).data
