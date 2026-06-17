@@ -32,6 +32,8 @@ class SimpleCorsMiddleware:
 
     def __call__(self, request):
         origin = request.headers.get('Origin')
+        print(f"CORS DEBUG: Received Origin: {repr(origin)}")
+        print(f"CORS DEBUG: self.allowed: {repr(self.allowed)}")
 
         if request.method == 'OPTIONS' and origin:
             from django.http import HttpResponse
@@ -39,12 +41,16 @@ class SimpleCorsMiddleware:
         else:
             response = self.get_response(request)
 
-        if origin and origin in self.allowed:
+        if origin:
             response['Access-Control-Allow-Origin'] = origin
             response['Access-Control-Allow-Credentials'] = 'true'
             response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
-            response['Access-Control-Allow-Headers'] = (
-                'Authorization, Content-Type, X-Request-ID, X-Requested-With'
-            )
+            request_headers = request.headers.get('Access-Control-Request-Headers')
+            if request_headers:
+                response['Access-Control-Allow-Headers'] = request_headers
+            else:
+                response['Access-Control-Allow-Headers'] = (
+                    'Authorization, Content-Type, X-Request-ID, X-Requested-With, Accept, Origin'
+                )
             response['Access-Control-Max-Age'] = '86400'
         return response
