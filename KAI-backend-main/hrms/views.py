@@ -225,10 +225,12 @@ class LeaveRequestListView(generics.ListAPIView):
     serializer_class = LeaveRequestSerializer
 
     def get_queryset(self):
+        from django.db.models import Q
         qs = LeaveRequest.objects.select_related('employee')
         user = self.request.user
         if not _is_privileged(user, 'hr.view_leave_all'):
-            qs = qs.filter(employee=user)
+            # Allow seeing own requests OR requests of direct reports
+            qs = qs.filter(Q(employee=user) | Q(employee__manager=user)).distinct()
         else:
             emp = self.request.query_params.get('employee_id')
             if emp:
