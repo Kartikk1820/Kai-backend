@@ -113,7 +113,6 @@ class TaskDetailSerializer(serializers.ModelSerializer):
     reporter = UserMiniSerializer(read_only=True)
     created_by = UserMiniSerializer(read_only=True)
     team = TeamSerializer(read_only=True)
-    comments = CommentSerializer(many=True, read_only=True)
     attachments = AttachmentSerializer(many=True, read_only=True)
     links = serializers.SerializerMethodField()
     is_overdue = serializers.SerializerMethodField()
@@ -134,7 +133,7 @@ class TaskDetailSerializer(serializers.ModelSerializer):
             'id', 'key', 'title', 'description', 'status', 'priority',
             'assignee', 'reporter', 'created_by', 'team', 'linked_bid',
             'labels', 'start_date', 'due_date', 'is_overdue', 'position',
-            'comments', 'attachments', 'links', 'created_at', 'updated_at',
+            'attachments', 'links', 'created_at', 'updated_at',
             'assignee_id', 'reporter_id', 'team_id', 'linked_bid_id',
         ]
         read_only_fields = ['id', 'key', 'status', 'created_by', 'position', 'created_at', 'updated_at']

@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q, Count
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
@@ -22,6 +23,12 @@ from .services import TaskService
 User = get_user_model()
 
 COLUMNS = ['todo', 'in_progress', 'blocked', 'review', 'done']
+
+
+class CommentPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 50
 
 
 def _base_queryset():
@@ -179,14 +186,22 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Response(TaskCardSerializer(result, context={'request': request}).data)
 
     # ---- comments ----
-    @action(detail=True, methods=['post'], url_path='comments')
-    def add_comment(self, request, pk=None):
+    @action(detail=True, methods=['get', 'post'], url_path='comments')
+    def task_comments(self, request, pk=None):
         task = self.get_object()
-        body = (request.data.get('body') or '').strip()
-        if not body:
-            return Response({'body': ['Comment cannot be empty.']}, status=400)
-        c = Comment.objects.create(task=task, author=request.user, body=body)
-        return Response(CommentSerializer(c).data, status=201)
+        if request.method == 'POST':
+            body = (request.data.get('body') or '').strip()
+            if not body:
+                return Response({'body': ['Comment cannot be empty.']}, status=400)
+            c = Comment.objects.create(task=task, author=request.user, body=body)
+            return Response(CommentSerializer(c).data, status=201)
+            
+        comments = task.comments.all()
+        paginator = CommentPagination()
+        page = paginator.paginate_queryset(comments, request)
+        if page is not None:
+            return paginator.get_paginated_response(CommentSerializer(page, many=True, context={'request': request}).data)
+        return Response(CommentSerializer(comments, many=True, context={'request': request}).data)
 
     @action(detail=True, methods=['patch', 'delete'], url_path='comments/(?P<cid>[^/.]+)')
     def comment_detail(self, request, pk=None, cid=None):
