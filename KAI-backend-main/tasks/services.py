@@ -5,7 +5,7 @@ from django_fsm import TransitionNotAllowed, can_proceed
 from rest_framework.exceptions import ValidationError, PermissionDenied
 
 from core.services import write_audit
-from core.permissions_catalog import TASK_TRANSITION_ANY, TASK_DELETE_ANY
+from core.permissions_catalog import TASK_TRANSITION_ANY, TASK_MANAGE
 from .models import Task, Comment, TaskLink
 
 
@@ -161,7 +161,7 @@ class TaskService:
     @classmethod
     @transaction.atomic
     def delete(cls, task, user, request=None):
-        if not (user.role == 'Admin' or user.has_perm_key(TASK_DELETE_ANY)
+        if not (user.role == 'Admin' or user.has_perm_key(TASK_MANAGE)
                 or task.reporter_id == user.id or task.created_by_id == user.id
                 or (task.assignee and task.assignee.manager_id == user.id)):
             raise PermissionDenied("You cannot delete this task.")

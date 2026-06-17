@@ -9,7 +9,8 @@ TASK_VIEW_ALL = 'task.view_all'
 TASK_CREATE = 'task.create'
 TASK_ASSIGN = 'task.assign'
 TASK_TRANSITION_ANY = 'task.transition_any'   # admin override on the board
-TASK_DELETE_ANY = 'task.delete_any'
+TASK_MANAGE = 'task.manage_tasks'
+TASK_MANAGE_COMMENTS = 'task.manage_comments'
 TEAM_MANAGE = 'team.manage'
 
 # HRMS - attendance
@@ -43,7 +44,8 @@ CATALOG = {
         (TASK_CREATE, 'Create tasks'),
         (TASK_ASSIGN, 'Assign tasks to others'),
         (TASK_TRANSITION_ANY, 'Override task status (any transition)'),
-        (TASK_DELETE_ANY, 'Delete any task'),
+        (TASK_MANAGE, 'Manage tasks (edit/delete any)'),
+        (TASK_MANAGE_COMMENTS, 'Manage comments (edit/delete any)'),
         (TEAM_MANAGE, 'Create & manage teams'),
     ],
     'Attendance': [

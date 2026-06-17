@@ -113,7 +113,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         data = ser.validated_data
         # status: employees can only create into todo
         requested_status = data.pop('status', 'todo')
-        if requested_status not in ('todo', 'in_progress') or request.user.role == 'Employee':
+        if requested_status not in ('todo', 'in_progress') or not request.user.has_perm_key('task.transition_any'):
             requested_status = 'todo'
         linked_bid_id = data.pop('linked_bid_id', None)
         top = Task.objects.filter(status=requested_status).order_by('position').first()
@@ -193,12 +193,12 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
         comment = get_object_or_404(Comment, id=cid, task=task)
         if request.method == 'DELETE':
-            if not (request.user.role == 'Admin' or comment.author_id == request.user.id):
+            if not (request.user.role == 'Admin' or request.user.has_perm_key('task.manage_comments') or comment.author_id == request.user.id):
                 return Response({'detail': 'Not allowed.'}, status=403)
             comment.delete()
             return Response(status=204)
         # PATCH
-        if not (request.user.role == 'Admin' or comment.author_id == request.user.id):
+        if not (request.user.role == 'Admin' or request.user.has_perm_key('task.manage_comments') or comment.author_id == request.user.id):
             return Response({'detail': 'Not allowed.'}, status=403)
         body = (request.data.get('body') or '').strip()
         if not body:
@@ -228,7 +228,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     def delete_attachment(self, request, pk=None, aid=None):
         task = self.get_object()
         att = get_object_or_404(Attachment, id=aid, task=task)
-        if not (request.user.role in ('Admin', 'Manager')
+        if not (request.user.role == 'Admin' or request.user.has_perm_key('task.manage_tasks')
                 or att.uploaded_by_id == request.user.id or task.reporter_id == request.user.id):
             return Response({'detail': 'Not allowed.'}, status=403)
         att.file.delete(save=False)

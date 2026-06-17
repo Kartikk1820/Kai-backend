@@ -29,7 +29,7 @@ User = get_user_model()
 
 
 def _is_privileged(user, perm_key):
-    return user.role in ('Admin', 'Manager') or user.has_perm_key(perm_key)
+    return user.role == 'Admin' or user.has_perm_key(perm_key)
 
 
 # ============================ Attendance ============================
