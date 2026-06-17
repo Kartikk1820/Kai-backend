@@ -132,7 +132,7 @@ class Task(models.Model):
     def unblock(self):
         pass
 
-    @transition(field=status, source='done', target='todo')
+    @transition(field=status, source='done', target='review')
     def reopen(self):
         pass
 

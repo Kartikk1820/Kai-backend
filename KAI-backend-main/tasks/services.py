@@ -5,7 +5,7 @@ from django_fsm import TransitionNotAllowed, can_proceed
 from rest_framework.exceptions import ValidationError, PermissionDenied
 
 from core.services import write_audit
-from core.permissions_catalog import TASK_TRANSITION_ANY, TASK_MANAGE
+from core.permissions_catalog import TASK_TRANSITION_ANY, TASK_MANAGE, TASK_APPROVE, TASK_BLOCK, TASK_REOPEN
 from .models import Task, Comment, TaskLink
 
 
@@ -17,7 +17,7 @@ ACTIONS = {
     'send_back': ('send_back', 'in_progress'),
     'block': ('block', 'blocked'),
     'unblock': ('unblock', 'todo'),
-    'reopen': ('reopen', 'todo'),
+    'reopen': ('reopen', 'review'),
 }
 
 FORCE = {
@@ -74,6 +74,14 @@ class TaskService:
         else:
             raise ValidationError({'action': 'Unknown action.'})
 
+        if not is_admin_override:
+            if method_name == 'approve' and not user.has_perm_key(TASK_APPROVE):
+                raise PermissionDenied("You do not have permission to approve tasks.")
+            if method_name == 'block' and not user.has_perm_key(TASK_BLOCK):
+                raise PermissionDenied("You do not have permission to block tasks.")
+            if method_name == 'reopen' and not user.has_perm_key(TASK_REOPEN):
+                raise PermissionDenied("You do not have permission to reopen tasks.")
+
         method = getattr(task, method_name)
         if not can_proceed(method):
             raise ValidationError({'detail': f"Transition from {old} is not permitted."})
@@ -107,7 +115,7 @@ class TaskService:
             ('in_progress', 'blocked'): 'block',
             ('review', 'blocked'): 'block',
             ('blocked', 'todo'): 'unblock',
-            ('done', 'todo'): 'reopen',
+            ('done', 'review'): 'reopen',
         }
         return legal.get((old, target))
 

@@ -9,6 +9,9 @@ TASK_VIEW_ALL = 'task.view_all'
 TASK_CREATE = 'task.create'
 TASK_ASSIGN = 'task.assign'
 TASK_TRANSITION_ANY = 'task.transition_any'   # admin override on the board
+TASK_APPROVE = 'task.approve'
+TASK_BLOCK = 'task.block'
+TASK_REOPEN = 'task.reopen'
 TASK_MANAGE = 'task.manage_tasks'
 TASK_MANAGE_COMMENTS = 'task.manage_comments'
 TEAM_MANAGE = 'team.manage'
@@ -43,7 +46,10 @@ CATALOG = {
         (TASK_VIEW_ALL, 'View all tasks'),
         (TASK_CREATE, 'Create tasks'),
         (TASK_ASSIGN, 'Assign tasks to others'),
-        (TASK_TRANSITION_ANY, 'Override task status (any transition)'),
+        (TASK_TRANSITION_ANY, 'Transition any task (Admin override)'),
+        (TASK_APPROVE, 'Approve tasks (move to Done)'),
+        (TASK_BLOCK, 'Block tasks'),
+        (TASK_REOPEN, 'Reopen completed tasks'),
         (TASK_MANAGE, 'Manage tasks (edit/delete any)'),
         (TASK_MANAGE_COMMENTS, 'Manage comments (edit/delete any)'),
         (TEAM_MANAGE, 'Create & manage teams'),
@@ -79,10 +85,11 @@ ALL_KEYS = [key for group in CATALOG.values() for (key, _label) in group]
 # Default role -> permission bundles used by the seeder.
 ROLE_BUNDLES = {
     'Employee': [
-        TASK_CREATE,
+        # Employee has minimal permissions by default. Can only transition their own tasks.
     ],
     'Manager': [
         TASK_VIEW_ALL, TASK_CREATE, TASK_ASSIGN, TEAM_MANAGE,
+        TASK_APPROVE, TASK_BLOCK, TASK_REOPEN,
         HR_VIEW_ATTENDANCE_ALL, HR_VIEW_LEAVE_ALL, HR_APPROVE_LEAVE,
         HR_MANAGE_LEAVE_BALANCE, HR_VIEW_DIRECTORY,
     ],
