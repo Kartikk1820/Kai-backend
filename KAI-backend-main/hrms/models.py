@@ -176,8 +176,6 @@ class Attendance(models.Model):
                                  related_name='attendances', db_index=True)
     date = models.DateField(db_index=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='absent')
-    clock_in_time = models.TimeField(null=True, blank=True)
-    clock_out_time = models.TimeField(null=True, blank=True)
     marked_by_admin = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
 
@@ -187,15 +185,42 @@ class Attendance(models.Model):
 
     @property
     def working_hours(self):
-        """Overnight-safe: if clock-out < clock-in, treat as next-day."""
-        if self.clock_in_time and self.clock_out_time:
-            base = datetime.combine(self.date, self.clock_in_time)
-            out = datetime.combine(self.date, self.clock_out_time)
+        """Sum of all completed and active sessions (active calculated up to now)."""
+        sessions = self.sessions.all()
+        total_seconds = 0
+        from datetime import datetime
+        now = datetime.now().time()
+
+        for session in sessions:
+            base = datetime.combine(self.date, session.clock_in_time)
+            # If active, use current time (if today) or 23:59:59 (if past day)
+            if session.clock_out_time:
+                out = datetime.combine(self.date, session.clock_out_time)
+            else:
+                from django.utils import timezone
+                if timezone.localtime().date() == self.date:
+                    out = datetime.combine(self.date, timezone.localtime().time())
+                else:
+                    out = datetime.combine(self.date, datetime.strptime('23:59:59', '%H:%M:%S').time())
+
             if out < base:
                 from datetime import timedelta
                 out += timedelta(days=1)
-            return round((out - base).total_seconds() / 3600, 2)
-        return 0.0
+            total_seconds += (out - base).total_seconds()
+            
+        return round(total_seconds / 3600, 2)
 
     def __str__(self):
         return f"{self.employee} - {self.date} ({self.status})"
+
+
+class AttendanceSession(models.Model):
+    attendance = models.ForeignKey(Attendance, on_delete=models.CASCADE, related_name='sessions')
+    clock_in_time = models.TimeField()
+    clock_out_time = models.TimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['clock_in_time']
+
+    def __str__(self):
+        return f"Session for {self.attendance} ({self.clock_in_time} - {self.clock_out_time or 'Active'})"

@@ -41,16 +41,14 @@ class AttendanceStatusView(APIView):
     def get(self, request):
         today = timezone.localtime().date()
         att = Attendance.objects.filter(employee=request.user, date=today).first()
-        if att and att.clock_in_time and not att.clock_out_time:
-            return Response({
-                'is_clocked_in': True,
-                'clock_in_time': att.clock_in_time.strftime('%H:%M:%S'),
-                'today_date': today.strftime('%Y-%m-%d'),
-                'working_hours_so_far': None,
-            })
+        active_session = att.sessions.filter(clock_out_time__isnull=True).first() if att else None
+        
+        is_clocked_in = active_session is not None
+        clock_in_time = active_session.clock_in_time.strftime('%H:%M:%S') if active_session else None
+        
         return Response({
-            'is_clocked_in': False,
-            'clock_in_time': att.clock_in_time.strftime('%H:%M:%S') if att and att.clock_in_time else None,
+            'is_clocked_in': is_clocked_in,
+            'clock_in_time': clock_in_time,
             'today_date': today.strftime('%Y-%m-%d'),
             'working_hours_so_far': att.working_hours if att else 0.0,
         })
@@ -65,12 +63,26 @@ class ClockInView(APIView):
         now_time = timezone.localtime().time()
         att, created = Attendance.objects.get_or_create(
             employee=request.user, date=today, defaults={'status': 'present'})
-        if not created and att.clock_in_time:
+            
+        if att.sessions.filter(clock_out_time__isnull=True).exists():
             return Response({'error': 'Already clocked in'}, status=status.HTTP_400_BAD_REQUEST)
-        att.clock_in_time = now_time
+            
+        from .models import AttendanceSession
+        session = AttendanceSession.objects.create(attendance=att, clock_in_time=now_time)
         att.status = 'present'
         att.save()
-        return Response({'message': 'Clocked in', 'clock_in_time': att.clock_in_time.strftime('%H:%M:%S')},
+        
+        try:
+            from .tasks import notify_eight_hours_reached
+            worked = att.working_hours
+            remaining = 8.0 - worked
+            if remaining > 0:
+                notify_eight_hours_reached.apply_async((request.user.id, str(today)), countdown=int(remaining * 3600))
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to schedule 8hr notification: {e}")
+            
+        return Response({'message': 'Clocked in', 'clock_in_time': session.clock_in_time.strftime('%H:%M:%S')},
                         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
@@ -82,14 +94,19 @@ class ClockOutView(APIView):
         today = timezone.localtime().date()
         now_time = timezone.localtime().time()
         att = Attendance.objects.filter(employee=request.user, date=today).first()
-        if not att or not att.clock_in_time:
+        
+        if not att:
             return Response({'error': "You haven't clocked in yet"}, status=status.HTTP_400_BAD_REQUEST)
-        if att.clock_out_time:
+            
+        active_session = att.sessions.filter(clock_out_time__isnull=True).first()
+        if not active_session:
             return Response({'error': 'Already clocked out'}, status=status.HTTP_400_BAD_REQUEST)
-        att.clock_out_time = now_time
-        att.save()
+            
+        active_session.clock_out_time = now_time
+        active_session.save()
+        
         return Response({'message': 'Clocked out',
-                         'clock_out_time': att.clock_out_time.strftime('%H:%M:%S'),
+                         'clock_out_time': active_session.clock_out_time.strftime('%H:%M:%S'),
                          'working_hours': att.working_hours})
 
 
@@ -129,12 +146,30 @@ class MarkAttendanceView(APIView):
             return Response({'error': 'employee_id and date are required'}, status=400)
         att, _ = Attendance.objects.get_or_create(employee_id=emp_id, date=date)
         att.status = data.get('status', att.status)
-        for fld in ('clock_in_time', 'clock_out_time'):
-            if data.get(fld):
+        
+        in_time_str = data.get('clock_in_time')
+        out_time_str = data.get('clock_out_time')
+        
+        if in_time_str or out_time_str:
+            from .models import AttendanceSession
+            # If admin marks time manually, we'll replace the sessions with a single explicit one.
+            att.sessions.all().delete()
+            session = AttendanceSession(attendance=att)
+            if in_time_str:
                 try:
-                    setattr(att, fld, datetime.datetime.strptime(data[fld], '%H:%M:%S').time())
+                    session.clock_in_time = datetime.datetime.strptime(in_time_str, '%H:%M:%S').time()
                 except ValueError:
-                    return Response({'error': f'Invalid {fld}. Use HH:MM:SS'}, status=400)
+                    return Response({'error': 'Invalid clock_in_time. Use HH:MM:SS'}, status=400)
+            else:
+                session.clock_in_time = datetime.time(9, 0, 0) # default fallback if only out provided
+                
+            if out_time_str:
+                try:
+                    session.clock_out_time = datetime.datetime.strptime(out_time_str, '%H:%M:%S').time()
+                except ValueError:
+                    return Response({'error': 'Invalid clock_out_time. Use HH:MM:SS'}, status=400)
+            session.save()
+            
         att.notes = data.get('notes', att.notes)
         att.marked_by_admin = True
         att.save()

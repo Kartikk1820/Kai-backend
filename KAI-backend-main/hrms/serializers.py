@@ -16,13 +16,25 @@ def _emp_name(obj):
 class AttendanceSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
     working_hours = serializers.FloatField(read_only=True)
+    clock_in_time = serializers.SerializerMethodField()
+    clock_out_time = serializers.SerializerMethodField()
 
     class Meta:
         model = Attendance
         fields = ['id', 'employee_id', 'employee_name', 'date', 'status',
                   'clock_in_time', 'clock_out_time', 'working_hours',
                   'marked_by_admin', 'notes']
-        read_only_fields = ['id', 'employee_id', 'employee_name', 'working_hours']
+        read_only_fields = ['id', 'employee_id', 'employee_name', 'working_hours', 'clock_in_time', 'clock_out_time']
+
+    def get_clock_in_time(self, obj):
+        first_session = obj.sessions.order_by('clock_in_time').first()
+        return first_session.clock_in_time.strftime('%H:%M:%S') if first_session else None
+
+    def get_clock_out_time(self, obj):
+        last_session = obj.sessions.order_by('-clock_in_time').first()
+        if last_session and last_session.clock_out_time:
+            return last_session.clock_out_time.strftime('%H:%M:%S')
+        return None
 
     def get_employee_name(self, obj):
         return _emp_name(obj)

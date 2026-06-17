@@ -207,6 +207,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'hrms.tasks.dispatch_scheduled_incentives',
         'schedule': crontab(day_of_month='15', hour=2, minute=0),
     },
+    'auto-clock-out-midnight': {
+        'task': 'hrms.tasks.auto_clock_out_midnight',
+        'schedule': crontab(hour=23, minute=59),
+    },
 }
 
 CACHES = {
