@@ -46,11 +46,25 @@ class AttendanceStatusView(APIView):
         is_clocked_in = active_session is not None
         clock_in_time = active_session.clock_in_time.strftime('%H:%M:%S') if active_session else None
         
+        previously_worked_hours = 0.0
+        if att:
+            from datetime import datetime
+            total_seconds = 0
+            for session in att.sessions.filter(clock_out_time__isnull=False):
+                base = datetime.combine(att.date, session.clock_in_time)
+                out = datetime.combine(att.date, session.clock_out_time)
+                if out < base:
+                    from datetime import timedelta
+                    out += timedelta(days=1)
+                total_seconds += (out - base).total_seconds()
+            previously_worked_hours = round(total_seconds / 3600, 2)
+        
         return Response({
             'is_clocked_in': is_clocked_in,
             'clock_in_time': clock_in_time,
             'today_date': today.strftime('%Y-%m-%d'),
             'working_hours_so_far': att.working_hours if att else 0.0,
+            'previously_worked_hours': previously_worked_hours
         })
 
 
