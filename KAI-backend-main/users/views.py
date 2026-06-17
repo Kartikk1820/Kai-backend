@@ -1,5 +1,5 @@
 from rest_framework.views import APIView
-from rest_framework.generics import RetrieveAPIView, ListCreateAPIView, RetrieveUpdateAPIView
+from rest_framework.generics import RetrieveAPIView, ListCreateAPIView, RetrieveUpdateAPIView, RetrieveUpdateDestroyAPIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -133,11 +133,17 @@ class RoleListCreateView(ListCreateAPIView):
     queryset = Role.objects.all()
 
 
-class RoleDetailView(RetrieveUpdateAPIView):
+class RoleDetailView(RetrieveUpdateDestroyAPIView):
     serializer_class = RoleSerializer
     permission_classes = [HasPermissionKey.of(RBAC_MANAGE)]
     queryset = Role.objects.all()
-    http_method_names = ['get', 'patch']
+    http_method_names = ['get', 'patch', 'delete']
+
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import ValidationError
+        if instance.is_system:
+            raise ValidationError("Cannot delete a system role.")
+        instance.delete()
 
 
 class PermissionCatalogView(APIView):
