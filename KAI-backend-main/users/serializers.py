@@ -55,6 +55,13 @@ class MeSerializer(serializers.ModelSerializer):
         return obj.subordinates.exists()
 
 
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    """Fields a user is allowed to edit on their own profile."""
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'phone_number', 'present_location', 'state']
+
+
 class AdminUserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     role_ids = serializers.PrimaryKeyRelatedField(

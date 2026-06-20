@@ -4,6 +4,7 @@ from .views import (
     CustomTokenBlacklistView, ChangePasswordView,
     AdminUserListCreateView, AdminUserDetailView, AdminResetPasswordView,
     RoleListCreateView, RoleDetailView, PermissionCatalogView,
+    UserListView,
 )
 
 urlpatterns = [
@@ -12,6 +13,7 @@ urlpatterns = [
     path('refresh/', CustomTokenRefreshView.as_view(), name='refresh'),
     path('me/', UserMeView.as_view(), name='user-me'),
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
+    path('users/', UserListView.as_view(), name='user-list'),
 
     # Admin
     path('admin/users/', AdminUserListCreateView.as_view(), name='admin-user-list'),

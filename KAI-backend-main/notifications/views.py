@@ -43,3 +43,38 @@ class MarkAllReadView(views.APIView):
     def post(self, request):
         Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
         return Response({'detail': 'All marked read.'})
+
+
+from django.contrib.auth import get_user_model
+from .services import notify
+
+User = get_user_model()
+
+class ManualNotificationView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not (request.user.role == 'Admin' or getattr(request.user, 'is_superuser', False)):
+            return Response({'detail': 'Not allowed.'}, status=status.HTTP_403_FORBIDDEN)
+            
+        title = request.data.get('title')
+        body = request.data.get('body', '')
+        targets = request.data.get('targets') # 'all' or list of ids
+        
+        if not title or not targets:
+            return Response({'detail': 'Title and targets are required.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        users_to_notify = []
+        if targets == 'all':
+            users_to_notify = list(User.objects.filter(is_active=True))
+        elif isinstance(targets, list):
+            users_to_notify = list(User.objects.filter(id__in=targets, is_active=True))
+        else:
+            return Response({'detail': 'Invalid targets format.'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        sent_count = 0
+        for u in users_to_notify:
+            notify(user=u, kind='manual_notification', title=title, body=body, actor=request.user)
+            sent_count += 1
+            
+        return Response({'detail': f'Sent {sent_count} notifications.'}, status=status.HTTP_201_CREATED)

@@ -26,6 +26,7 @@ urlpatterns = [
     path('api/hrms/', include('hrms.urls')),
     path('api/bids/', include('bids.urls')),
     path('api/notifications/', include('notifications.urls')),
+    path('api/documents/', include('documents.urls')),
 ]
 
 if settings.DEBUG:

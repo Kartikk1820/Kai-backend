@@ -10,6 +10,10 @@ class Notification(models.Model):
         ('incentive_granted', 'Incentive granted'),
         ('incentive_sent', 'Incentive sent'),
         ('task_assigned', 'Task assigned'),
+        ('document_received', 'Document received'),
+        ('document_request', 'Document requested'),
+        ('document_request_fulfilled', 'Document request fulfilled'),
+        ('document_request_declined', 'Document request declined'),
     ]
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications', db_index=True)

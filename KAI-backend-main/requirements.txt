@@ -19,3 +19,4 @@ dj-database-url==2.*
 Pillow==10.*
 openpyxl
 pandas
+django-cors-headers==4.9.0

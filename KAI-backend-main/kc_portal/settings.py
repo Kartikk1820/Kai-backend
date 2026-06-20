@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'tasks',
     'hrms',
     'notifications',
+    'documents',
 ]
 
 MIDDLEWARE = [

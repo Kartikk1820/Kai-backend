@@ -17,7 +17,8 @@ from core.services import write_audit
 from core.models import Role
 from .serializers import (
     CustomTokenObtainPairSerializer, MeSerializer, ChangePasswordSerializer,
-    AdminUserSerializer, RoleSerializer, CustomTokenRefreshSerializer
+    AdminUserSerializer, RoleSerializer, CustomTokenRefreshSerializer,
+    UserMiniSerializer, ProfileUpdateSerializer,
 )
 
 User = get_user_model()
@@ -57,6 +58,15 @@ class UserMeView(RetrieveAPIView):
     def get_object(self):
         return self.request.user
 
+    @extend_schema(summary="Update own profile", request=ProfileUpdateSerializer)
+    def patch(self, request, *args, **kwargs):
+        ser = ProfileUpdateSerializer(request.user, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        write_audit(actor=request.user, model_name='User', object_id=request.user.id,
+                    action='profile_update', new_state='updated', request=request)
+        return Response(MeSerializer(request.user, context={'request': request}).data)
+
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
@@ -78,6 +88,17 @@ class ChangePasswordView(APIView):
         write_audit(actor=user, model_name='User', object_id=user.id,
                     action='password_change', new_state='changed', request=request)
         return Response({'detail': 'Password updated.'})
+
+
+# ---------------- Public user list (for peer-to-peer features) ----------------
+
+class UserListView(APIView):
+    """Any authenticated user can list colleagues for document sharing, etc."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = User.objects.exclude(role='Client').exclude(id=request.user.id).order_by('first_name', 'email')
+        return Response(UserMiniSerializer(qs, many=True).data)
 
 
 # ---------------- Admin: users & roles ----------------

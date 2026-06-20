@@ -74,12 +74,12 @@ class ClientBid(models.Model):
 
 class PortalCredential(models.Model):
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='portal_credentials')
-    state = models.CharField(max_length=100, blank=True)
+    state = models.CharField(max_length=255, blank=True)
     agency = models.CharField(max_length=255, blank=True)
-    portal_name = models.CharField(max_length=100, blank=True)
+    portal_name = models.CharField(max_length=255, blank=True)
     username = models.CharField(max_length=255, blank=True)
     password = models.CharField(max_length=255, blank=True)
-    link = models.URLField(blank=True)
+    link = models.TextField(blank=True)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
