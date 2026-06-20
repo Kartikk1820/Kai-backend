@@ -42,6 +42,7 @@ class MeSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
             'role', 'sub_position', 'entity', 'manager', 'phone_number',
             'must_change_password', 'is_manager', 'permissions', 'roles',
+            'state', 'present_location', 'pay_rate', 'margin', 'contract_period', 'job_id',
         ]
 
     def get_permissions(self, obj):
@@ -68,6 +69,7 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name', 'full_name', 'role',
             'sub_position', 'manager', 'entity', 'phone_number', 'date_of_joining',
             'is_active', 'must_change_password', 'password', 'role_ids', 'roles',
+            'state', 'present_location', 'pay_rate', 'margin', 'contract_period', 'job_id',
         ]
         read_only_fields = ['must_change_password']
 

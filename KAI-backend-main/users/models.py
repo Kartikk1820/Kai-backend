@@ -45,6 +45,9 @@ class User(AbstractUser):
         ('Senior VP', 'Senior VP'),
         ('Team Lead', 'Team Lead'),
         ('Associate', 'Associate'),
+        ('Administrative Assistant', 'Administrative Assistant'),
+        ('Program Coordinator', 'Program Coordinator'),
+        ('Data Collection Staff', 'Data Collection Staff'),
     ]
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Employee', db_index=True)
@@ -59,6 +62,13 @@ class User(AbstractUser):
 
     # Forced one-time password change after admin creates/resets the account.
     must_change_password = models.BooleanField(default=True)
+
+    state = models.CharField(max_length=100, null=True, blank=True)
+    present_location = models.CharField(max_length=255, null=True, blank=True)
+    pay_rate = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    margin = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    contract_period = models.CharField(max_length=100, null=True, blank=True)
+    job_id = models.CharField(max_length=100, null=True, blank=True)
 
     # Per-user permission overrides on top of group permissions.
     extra_permissions = models.JSONField(default=list, blank=True)   # granted keys

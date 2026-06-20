@@ -17,3 +17,5 @@ cryptography==42.*
 python-decouple==3.8
 dj-database-url==2.*
 Pillow==10.*
+openpyxl
+pandas

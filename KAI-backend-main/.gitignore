@@ -47,3 +47,8 @@ build/
 # Agents & Skills lock (auto-generated)
 skills-lock.json
 .agents/
+
+# Temporary data and analysis scripts
+master_sheet.xlsx
+analyze_excel.py
+celerybeat-schedule*
