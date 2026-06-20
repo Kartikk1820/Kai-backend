@@ -70,3 +70,22 @@ class ClientBid(models.Model):
 
     def __str__(self):
         return f"ClientBid {self.id} — {self.opportunity.title}"
+
+
+class PortalCredential(models.Model):
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='portal_credentials')
+    state = models.CharField(max_length=100, blank=True)
+    agency = models.CharField(max_length=255, blank=True)
+    portal_name = models.CharField(max_length=100, blank=True)
+    username = models.CharField(max_length=255, blank=True)
+    password = models.CharField(max_length=255, blank=True)
+    link = models.URLField(blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['state', 'portal_name']
+
+    def __str__(self):
+        return f"{self.client.shortcode} — {self.portal_name or self.agency or 'credential'}"

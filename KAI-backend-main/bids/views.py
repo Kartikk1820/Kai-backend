@@ -12,10 +12,10 @@ import hashlib
 import json
 import structlog
 
-from .models import Client, BidOpportunity, ClientBid
+from .models import Client, BidOpportunity, ClientBid, PortalCredential
 from .serializers import (
-    ClientSerializer, BidOpportunitySerializer,
-    ClientBidSerializer, UserBidSerializer
+    ClientSerializer, ClientDetailSerializer, BidOpportunitySerializer,
+    ClientBidSerializer, UserBidSerializer, PortalCredentialSerializer
 )
 
 logger = structlog.get_logger(__name__)
@@ -377,3 +377,78 @@ class BidSyncNowView(views.APIView):
         except Exception as e:
             logger.error(f"Excel import error: {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ─── 9. Clients list + create ─────────────────────────────────────────────────
+
+class ClientListCreateView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        clients = Client.objects.prefetch_related('portal_credentials').all()
+        return Response(ClientDetailSerializer(clients, many=True).data)
+
+    def post(self, request):
+        serializer = ClientSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        client = serializer.save()
+        return Response(ClientDetailSerializer(client).data, status=status.HTTP_201_CREATED)
+
+
+class ClientRetrieveUpdateView(generics.RetrieveUpdateAPIView):
+    permission_classes = [IsAuthenticated]
+    queryset = Client.objects.prefetch_related('portal_credentials').all()
+    serializer_class = ClientDetailSerializer
+
+    def get_serializer_class(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return ClientSerializer
+        return ClientDetailSerializer
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = ClientSerializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        client = serializer.save()
+        return Response(ClientDetailSerializer(Client.objects.prefetch_related('portal_credentials').get(pk=client.pk)).data)
+
+
+# ─── 10. Portal credentials ────────────────────────────────────────────────────
+
+class PortalCredentialListCreateView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, client_pk):
+        creds = PortalCredential.objects.filter(client_id=client_pk)
+        return Response(PortalCredentialSerializer(creds, many=True).data)
+
+    def post(self, request, client_pk):
+        get_object_or_404 = __import__('django.shortcuts', fromlist=['get_object_or_404']).get_object_or_404
+        client = get_object_or_404(Client, pk=client_pk)
+        serializer = PortalCredentialSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cred = serializer.save(client=client)
+        write_audit = __import__('core.services', fromlist=['write_audit']).write_audit
+        write_audit(actor=request.user, model_name='PortalCredential', object_id=cred.id, action='created', request=request)
+        return Response(PortalCredentialSerializer(cred).data, status=status.HTTP_201_CREATED)
+
+
+class PortalCredentialDetailView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get(self, client_pk, pk):
+        from django.shortcuts import get_object_or_404
+        return get_object_or_404(PortalCredential, pk=pk, client_id=client_pk)
+
+    def patch(self, request, client_pk, pk):
+        cred = self._get(client_pk, pk)
+        serializer = PortalCredentialSerializer(cred, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(PortalCredentialSerializer(cred).data)
+
+    def delete(self, request, client_pk, pk):
+        cred = self._get(client_pk, pk)
+        cred.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Client, BidOpportunity, ClientBid
+from .models import Client, BidOpportunity, ClientBid, PortalCredential
 
 User = get_user_model()
 
@@ -60,6 +60,25 @@ class ClientBidSerializer(serializers.ModelSerializer):
             'client_id', 'presales_person_id', 'writer_id',
         ]
         read_only_fields = ['id', 'opportunity_id', 'created_at', 'updated_at']
+
+
+class PortalCredentialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PortalCredential
+        fields = ['id', 'client_id', 'state', 'agency', 'portal_name', 'username', 'password', 'link', 'notes', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class ClientDetailSerializer(serializers.ModelSerializer):
+    portal_credentials = PortalCredentialSerializer(many=True, read_only=True)
+    bid_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Client
+        fields = ['id', 'name', 'shortcode', 'bid_count', 'portal_credentials']
+
+    def get_bid_count(self, obj):
+        return obj.clientbid_set.count()
 
 
 class BidOpportunitySerializer(serializers.ModelSerializer):

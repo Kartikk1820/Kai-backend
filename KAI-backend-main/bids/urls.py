@@ -7,21 +7,28 @@ from .views import (
     ClientBidDetailView,
     BidSyncStatusView,
     BidSyncNowView,
+    ClientListCreateView,
+    ClientRetrieveUpdateView,
+    PortalCredentialListCreateView,
+    PortalCredentialDetailView,
 )
 
 urlpatterns = [
-    # 1. Filter options
+    # Filter options
     path('filter-options/', BidFilterOptionsView.as_view(), name='bid-filter-options'),
-    # 2. Opportunities list + create
+    # Opportunities
     path('opportunities/', BidOpportunityListCreateView.as_view(), name='bid-opportunity-list'),
-    # 4. Single opportunity detail
     path('opportunities/<int:pk>/', BidOpportunityDetailView.as_view(), name='bid-opportunity-detail'),
-    # 3. Flat client-bids list
+    # Client bids
     path('client-bids/', ClientBidListView.as_view(), name='client-bid-list'),
-    # 6. Update a client-bid
     path('client-bids/<int:pk>/', ClientBidDetailView.as_view(), name='client-bid-detail'),
-    # 7. Sync status
+    # Sync
     path('sync-status/', BidSyncStatusView.as_view(), name='bid-sync-status'),
-    # 8. Trigger sync
     path('sync-now/', BidSyncNowView.as_view(), name='bid-sync-now'),
+    # Clients CRUD
+    path('clients/', ClientListCreateView.as_view(), name='client-list'),
+    path('clients/<int:pk>/', ClientRetrieveUpdateView.as_view(), name='client-detail'),
+    # Portal credentials (nested under client)
+    path('clients/<int:client_pk>/credentials/', PortalCredentialListCreateView.as_view(), name='credential-list'),
+    path('clients/<int:client_pk>/credentials/<int:pk>/', PortalCredentialDetailView.as_view(), name='credential-detail'),
 ]
