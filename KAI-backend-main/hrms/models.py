@@ -44,7 +44,7 @@ class LeaveRequest(models.Model):
     from_date = models.DateField()
     to_date = models.DateField()
     total_days = models.IntegerField()
-    reason = models.TextField()
+    reason = models.TextField(blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
     applied_on = models.DateTimeField(auto_now_add=True)
     reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,

@@ -50,6 +50,7 @@ class LeaveBalanceSerializer(serializers.ModelSerializer):
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
+    reason = serializers.CharField(allow_blank=True, required=False, default='')
 
     class Meta:
         model = LeaveRequest

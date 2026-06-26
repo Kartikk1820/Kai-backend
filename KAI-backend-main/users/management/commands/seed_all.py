@@ -662,6 +662,33 @@ class Command(BaseCommand):
         LeaveRequest.objects.bulk_create(leave_batch, batch_size=200, ignore_conflicts=True)
         self.stdout.write(self.style.SUCCESS(f'  {len(leave_batch)} leave requests created (30 pending)'))
 
+        # Recompute LeaveBalance used-day counters from ALL approved leaves (idempotent)
+        from collections import defaultdict
+        from django.db.models import Sum
+        emp_ids = [e.id for e in att_employees]
+        agg_rows = (
+            LeaveRequest.objects
+            .filter(employee_id__in=emp_ids, status='approved')
+            .values('employee_id', 'leave_type')
+            .annotate(total=Sum('total_days'))
+        )
+        bal_map = defaultdict(lambda: {'sick': 0, 'casual': 0, 'earned': 0, 'unpaid': 0})
+        for row in agg_rows:
+            lt = row['leave_type']
+            if lt in bal_map[row['employee_id']]:
+                bal_map[row['employee_id']][lt] = row['total'] or 0
+
+        if bal_map:
+            bals = list(LeaveBalance.objects.filter(employee_id__in=bal_map.keys()))
+            for bal in bals:
+                d = bal_map[bal.employee_id]
+                bal.sick_used = min(bal.sick_total, d['sick'])
+                bal.casual_used = min(bal.casual_total, d['casual'])
+                bal.earned_used = min(bal.earned_total, d['earned'])
+                bal.unpaid_used = d['unpaid']
+            LeaveBalance.objects.bulk_update(bals, ['sick_used', 'casual_used', 'earned_used', 'unpaid_used'])
+            self.stdout.write(self.style.SUCCESS(f'  Recalculated leave balances for {len(bals)} employees'))
+
         # ── 7. Notifications ──────────────────────────────────────────────────
         self.stdout.write(self.style.MIGRATE_HEADING('\n[7/7] Seeding notifications...'))
         tasks_sample = list(Task.objects.all()[:50])
