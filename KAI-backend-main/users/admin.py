@@ -6,6 +6,7 @@ from django.shortcuts import redirect
 from django.core.management import call_command
 from .models import User
 
+
 class CustomUserAdmin(UserAdmin):
     change_list_template = "admin/users/user/change_list.html"
 
@@ -32,17 +33,17 @@ class CustomUserAdmin(UserAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
-            path('seed-users/', self.admin_site.admin_view(self.seed_users_view), name='seed-users'),
+            path('seed-all/', self.admin_site.admin_view(self.seed_all_view), name='seed-all'),
         ]
         return custom_urls + urls
 
-    def seed_users_view(self, request):
+    def seed_all_view(self, request):
         try:
-            call_command('seed_users')
-            self.message_user(request, "Dummy users have been seeded successfully!", level=messages.SUCCESS)
+            call_command('seed_all')
+            self.message_user(request, "Full data seed complete — users, teams, clients, bids, tasks & attendance created!", level=messages.SUCCESS)
         except Exception as e:
-            self.message_user(request, f"Error seeding users: {str(e)}", level=messages.ERROR)
-        
+            self.message_user(request, f"Seed error: {str(e)}", level=messages.ERROR)
         return redirect('..')
+
 
 admin.site.register(User, CustomUserAdmin)

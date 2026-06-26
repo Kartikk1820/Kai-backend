@@ -4,8 +4,9 @@
 {% block object-tools-items %}
   {{ block.super }}
   <li>
-    <a href="seed-users/" class="addlink" style="background-color: #28a745; color: white;">
-      {% trans "Seed Dummy Users" %}
+    <a href="seed-all/" class="addlink" style="background-color: #6554c0; color: white;"
+       onclick="return confirm('This will seed users, teams, clients, bids, tasks and attendance. Continue?')">
+      {% trans "🌱 Seed All Demo Data" %}
     </a>
   </li>
 {% endblock %}
