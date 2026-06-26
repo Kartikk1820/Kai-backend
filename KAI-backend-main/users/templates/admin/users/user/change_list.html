@@ -4,9 +4,138 @@
 {% block object-tools-items %}
   {{ block.super }}
   <li>
-    <a href="seed-all/" class="addlink" style="background-color: #6554c0; color: white;"
-       onclick="return confirm('This will seed users, teams, clients, bids, tasks and attendance. Continue?')">
+    <a href="seed-all/" id="seed-btn" class="addlink"
+       style="background-color:#6554c0;color:white;cursor:pointer;">
       {% trans "🌱 Seed All Demo Data" %}
     </a>
   </li>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+#seed-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.65);
+  z-index: 99999;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+#seed-overlay.active { display: flex; }
+
+.seed-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 40px 48px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  min-width: 380px;
+}
+.seed-card h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  color: #1a1a2e;
+}
+.seed-card p {
+  margin: 0 0 28px;
+  color: #666;
+  font-size: 13px;
+}
+
+/* Spinner */
+.spinner-ring {
+  width: 56px; height: 56px;
+  border: 5px solid #e0d9f7;
+  border-top-color: #6554c0;
+  border-radius: 50%;
+  animation: spin .9s linear infinite;
+  margin: 0 auto 24px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Progress steps */
+.steps { text-align: left; margin: 0 0 24px; }
+.step {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; font-size: 13px; color: #999;
+  border-bottom: 1px solid #f0f0f0;
+  transition: color .3s;
+}
+.step:last-child { border-bottom: none; }
+.step.done  { color: #2d9e6d; }
+.step.active { color: #6554c0; font-weight: 600; }
+.step-icon { font-size: 16px; width: 20px; text-align: center; }
+
+.seed-note {
+  font-size: 11.5px; color: #aaa; margin: 0;
+}
+</style>
+
+<div id="seed-overlay">
+  <div class="seed-card">
+    <h2>Seeding Demo Data</h2>
+    <p>This may take 30–90 seconds. Please wait…</p>
+    <div class="spinner-ring"></div>
+    <div class="steps" id="seed-steps">
+      <div class="step" id="step-0"><span class="step-icon">⏳</span> Creating users &amp; teams</div>
+      <div class="step" id="step-1"><span class="step-icon">⏳</span> Creating 100 client companies</div>
+      <div class="step" id="step-2"><span class="step-icon">⏳</span> Creating 500 bid opportunities</div>
+      <div class="step" id="step-3"><span class="step-icon">⏳</span> Creating ~1 000 client bids</div>
+      <div class="step" id="step-4"><span class="step-icon">⏳</span> Creating 20 sprints &amp; tasks</div>
+      <div class="step" id="step-5"><span class="step-icon">⏳</span> Seeding 1 year of attendance</div>
+      <div class="step" id="step-6"><span class="step-icon">⏳</span> Creating leave &amp; notifications</div>
+    </div>
+    <p class="seed-note">Page will reload automatically when done.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Rough timing (seconds into the request) each step becomes "active"
+  // These are estimates based on typical seed duration.
+  var STEP_TIMES = [0, 4, 8, 14, 22, 35, 60];
+  var start, stepIdx = 0, timer;
+
+  function markStep(i, state) {
+    var el = document.getElementById('step-' + i);
+    if (!el) return;
+    el.classList.remove('active', 'done');
+    el.classList.add(state);
+    el.querySelector('.step-icon').textContent = state === 'done' ? '✅' : state === 'active' ? '⚙️' : '⏳';
+  }
+
+  function tick() {
+    var elapsed = (Date.now() - start) / 1000;
+    // Mark done all steps whose time has passed, active the current one
+    for (var i = 0; i < STEP_TIMES.length; i++) {
+      if (elapsed >= STEP_TIMES[i]) {
+        if (i + 1 < STEP_TIMES.length && elapsed >= STEP_TIMES[i + 1]) {
+          markStep(i, 'done');
+        } else {
+          markStep(i, 'active');
+        }
+      }
+    }
+    timer = setTimeout(tick, 800);
+  }
+
+  document.getElementById('seed-btn').addEventListener('click', function (e) {
+    e.preventDefault();
+    var href = this.href;
+
+    if (!confirm('This will seed users, teams, clients, bids, tasks, attendance and notifications.\n\nContinue?')) return;
+
+    document.getElementById('seed-overlay').classList.add('active');
+    start = Date.now();
+    tick();
+
+    // Navigate after a tiny delay so the overlay renders first
+    setTimeout(function () { window.location.href = href; }, 80);
+  });
+})();
+</script>
 {% endblock %}
