@@ -1,493 +1,706 @@
-import random
-from datetime import date, timedelta, datetime, time
-from decimal import Decimal
+"""
+seed_all — full company snapshot seed
+======================================
+Targets:
+  - 10 managers, 50 employees, 5 HR staff, 100 client users
+  - 100 client companies
+  - 500 bid opportunities
+  - ~1 000 client bids
+  - 20 sprints (10-20 tasks each)
+  - 200 backlog tasks
+  - 1 year of attendance per employee (with sessions)
+  - 30 pending leave applications + ~180 approved/rejected historical ones
+  - ~4 notifications per internal user
 
+All passwords: Demo@1234
+"""
+import random
+import string
+from datetime import date, timedelta, time
+from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django.db import transaction
 
 User = get_user_model()
 
+# ── Name pools ────────────────────────────────────────────────────────────────
 
-USERS_DATA = [
-    # Managers
-    {"email": "sarah.mitchell@kaiportal.com",  "first_name": "Sarah",   "last_name": "Mitchell",  "role": "Manager",  "sub_position": "Senior VP",         "phone": "+1-202-555-0101"},
-    {"email": "david.okonkwo@kaiportal.com",   "first_name": "David",   "last_name": "Okonkwo",   "role": "Manager",  "sub_position": "Team Lead",         "phone": "+1-202-555-0102"},
-    {"email": "priya.sharma@kaiportal.com",    "first_name": "Priya",   "last_name": "Sharma",    "role": "Manager",  "sub_position": "Senior VP",         "phone": "+1-202-555-0103"},
-
-    # Employees
-    {"email": "james.carter@kaiportal.com",    "first_name": "James",   "last_name": "Carter",    "role": "Employee", "sub_position": "Proposal Writer",   "phone": "+1-202-555-0104"},
-    {"email": "aisha.patel@kaiportal.com",     "first_name": "Aisha",   "last_name": "Patel",     "role": "Employee", "sub_position": "Proposal Writer",   "phone": "+1-202-555-0105"},
-    {"email": "marcus.nguyen@kaiportal.com",   "first_name": "Marcus",  "last_name": "Nguyen",    "role": "Employee", "sub_position": "Associate",         "phone": "+1-202-555-0106"},
-    {"email": "elena.vasquez@kaiportal.com",   "first_name": "Elena",   "last_name": "Vasquez",   "role": "Employee", "sub_position": "Program Coordinator","phone": "+1-202-555-0107"},
-    {"email": "tyrone.brooks@kaiportal.com",   "first_name": "Tyrone",  "last_name": "Brooks",    "role": "Employee", "sub_position": "Data Collection Staff","phone": "+1-202-555-0108"},
-    {"email": "mei.chen@kaiportal.com",        "first_name": "Mei",     "last_name": "Chen",      "role": "Employee", "sub_position": "Proposal Writer",   "phone": "+1-202-555-0109"},
-    {"email": "omar.hassan@kaiportal.com",     "first_name": "Omar",    "last_name": "Hassan",    "role": "Employee", "sub_position": "Associate",         "phone": "+1-202-555-0110"},
-    {"email": "jessica.kim@kaiportal.com",     "first_name": "Jessica", "last_name": "Kim",       "role": "Employee", "sub_position": "Administrative Assistant","phone": "+1-202-555-0111"},
-    {"email": "rafael.morales@kaiportal.com",  "first_name": "Rafael",  "last_name": "Morales",   "role": "Employee", "sub_position": "Data Collection Staff","phone": "+1-202-555-0112"},
-    {"email": "linda.washington@kaiportal.com","first_name": "Linda",   "last_name": "Washington","role": "Employee", "sub_position": "Program Coordinator","phone": "+1-202-555-0113"},
-    {"email": "kevin.osei@kaiportal.com",      "first_name": "Kevin",   "last_name": "Osei",      "role": "Employee", "sub_position": "Associate",         "phone": "+1-202-555-0114"},
-
-    # HR Manager
-    {"email": "angela.foster@kaiportal.com",   "first_name": "Angela",  "last_name": "Foster",    "role": "Manager",  "sub_position": "Team Lead",         "phone": "+1-202-555-0115"},
-
-    # Clients
-    {"email": "contact@nexusgov.com",          "first_name": "Nexus",   "last_name": "Government","role": "Client",   "sub_position": None,                "phone": "+1-703-555-0201"},
-    {"email": "procurement@alphatec.io",       "first_name": "Alpha",   "last_name": "Technologies","role": "Client", "sub_position": None,                "phone": "+1-703-555-0202"},
-    {"email": "bids@vanguardsolutions.com",    "first_name": "Vanguard","last_name": "Solutions",  "role": "Client",  "sub_position": None,                "phone": "+1-703-555-0203"},
+FIRST_NAMES = [
+    "James","Mary","Robert","Patricia","John","Jennifer","Michael","Linda",
+    "William","Barbara","David","Elizabeth","Richard","Susan","Joseph","Jessica",
+    "Thomas","Sarah","Charles","Karen","Christopher","Lisa","Daniel","Nancy",
+    "Matthew","Betty","Anthony","Margaret","Mark","Sandra","Donald","Ashley",
+    "Steven","Kimberly","Paul","Emily","Andrew","Donna","Joshua","Michelle",
+    "Kenneth","Dorothy","Kevin","Carol","Brian","Amanda","George","Melissa",
+    "Timothy","Deborah","Ronald","Stephanie","Edward","Rebecca","Jason","Sharon",
+    "Jeffrey","Laura","Ryan","Cynthia","Jacob","Kathleen","Gary","Amy",
+    "Nicholas","Angela","Eric","Shirley","Jonathan","Anna","Stephen","Brenda",
+    "Larry","Pamela","Justin","Emma","Scott","Nicole","Brandon","Helen",
+    "Benjamin","Samantha","Samuel","Katherine","Raymond","Christine","Gregory",
+    "Debra","Frank","Rachel","Alexander","Carolyn","Patrick","Janet","Jack","Maria",
+    "Aisha","Omar","Priya","Ravi","Mei","Kenji","Yusuf","Fatima","Kofi","Amara",
+    "Liam","Aria","Noah","Zoe","Ethan","Chloe","Mason","Lily","Logan","Ella",
 ]
 
-TEAMS_DATA = [
-    {
-        "name": "Federal Proposals",
-        "description": "Handles federal bid writing and submission",
-        "members": ["james.carter@kaiportal.com", "aisha.patel@kaiportal.com", "mei.chen@kaiportal.com", "tyrone.brooks@kaiportal.com"],
-        "lead": "sarah.mitchell@kaiportal.com",
-    },
-    {
-        "name": "State & Local",
-        "description": "State and local government contract pursuit",
-        "members": ["marcus.nguyen@kaiportal.com", "elena.vasquez@kaiportal.com", "jessica.kim@kaiportal.com"],
-        "lead": "david.okonkwo@kaiportal.com",
-    },
-    {
-        "name": "Data & Analytics",
-        "description": "Data collection, analysis, and reporting",
-        "members": ["omar.hassan@kaiportal.com", "rafael.morales@kaiportal.com", "kevin.osei@kaiportal.com"],
-        "lead": "priya.sharma@kaiportal.com",
-    },
-    {
-        "name": "Operations",
-        "description": "Internal operations and admin support",
-        "members": ["linda.washington@kaiportal.com", "jessica.kim@kaiportal.com"],
-        "lead": "angela.foster@kaiportal.com",
-    },
+LAST_NAMES = [
+    "Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis",
+    "Rodriguez","Martinez","Hernandez","Lopez","Gonzalez","Wilson","Anderson",
+    "Thomas","Taylor","Moore","Jackson","Martin","Lee","Perez","Thompson","White",
+    "Harris","Sanchez","Clark","Ramirez","Lewis","Robinson","Walker","Young",
+    "Allen","King","Wright","Scott","Torres","Nguyen","Hill","Flores","Green",
+    "Adams","Nelson","Baker","Hall","Rivera","Campbell","Mitchell","Carter",
+    "Roberts","Osei","Patel","Sharma","Khan","Ahmed","Hassan","Okonkwo","Diallo",
+    "Kimura","Tanaka","Watanabe","Nakamura","Suzuki","Chen","Wang","Li","Zhang",
+    "Liu","Yang","Huang","Zhao","Wu","Zhou","Sun","Ma","Zhu","Hu","Guo","Lin",
+    "He","Gao","Liang","Zheng","Luo","Song","Xie","Tang","Xu","Han","Feng",
+    "Deng","Cao","Peng","Zeng","Xiao","Tian","Jiang","Yin","Ye","Fu",
+    "Washington","Jefferson","Monroe","Harrison","Tyler","Polk","Pierce","Buchanan",
 ]
 
-CLIENTS_DATA = [
-    {"name": "Nexus Government Services",   "shortcode": "NGS",  "corporation_type": "LLC",          "state_of_incorporation": "Virginia",  "website": "https://nexusgov.com",          "address": "1400 Defense Blvd, Arlington, VA 22209"},
-    {"name": "Alpha Technologies Inc.",     "shortcode": "ATI",  "corporation_type": "Corporation",  "state_of_incorporation": "Maryland",  "website": "https://alphatec.io",           "address": "700 Tech Parkway, Bethesda, MD 20814"},
-    {"name": "Vanguard Solutions LLC",      "shortcode": "VSL",  "corporation_type": "LLC",          "state_of_incorporation": "Virginia",  "website": "https://vanguardsolutions.com", "address": "3250 Wilson Blvd, Arlington, VA 22201"},
-    {"name": "Pinnacle Federal Group",      "shortcode": "PFG",  "corporation_type": "S-Corp",       "state_of_incorporation": "DC",        "website": "https://pinnaclefederal.com",   "address": "1800 K Street NW, Washington, DC 20006"},
-    {"name": "Meridian Consulting Partners","shortcode": "MCP",  "corporation_type": "Partnership",  "state_of_incorporation": "Virginia",  "website": "https://meridianconsulting.com","address": "8270 Greensboro Drive, McLean, VA 22102"},
-    {"name": "Horizon Defense Contractors","shortcode": "HDC",  "corporation_type": "Corporation",  "state_of_incorporation": "Maryland",  "website": "https://horizondefense.com",   "address": "7799 Leesburg Pike, Falls Church, VA 22043"},
+SUB_POSITIONS = [
+    "Proposal Writer","Senior VP","Team Lead","Associate",
+    "Administrative Assistant","Program Coordinator","Data Collection Staff",
 ]
 
-OPPORTUNITIES_DATA = [
-    {"agency": "Department of Defense", "title": "Cybersecurity Assessment and Risk Management Services", "solicitation_number": "DoD-CARMS-2026-001", "state": "VA", "category": "IT Services", "days_out": 45},
-    {"agency": "Department of Health and Human Services", "title": "Public Health Data Analytics Platform", "solicitation_number": "HHS-PHDAP-2026-012", "state": "MD", "category": "Data Analytics", "days_out": 30},
-    {"agency": "General Services Administration", "title": "Professional Administrative Support Services IDIQ", "solicitation_number": "GSA-PASS-2026-087", "state": "DC", "category": "Administrative", "days_out": 60},
-    {"agency": "Department of Veterans Affairs", "title": "Healthcare IT Modernization and Support", "solicitation_number": "VA-HITS-2026-034", "state": "VA", "category": "Healthcare IT", "days_out": 20},
-    {"agency": "Department of Homeland Security", "title": "Border Security Technology Integration", "solicitation_number": "DHS-BSTI-2026-056", "state": "TX", "category": "Security", "days_out": 90},
-    {"agency": "Environmental Protection Agency", "title": "Environmental Data Collection and Reporting", "solicitation_number": "EPA-EDCR-2026-019", "state": "DC", "category": "Environmental", "days_out": 15},
-    {"agency": "Department of Education", "title": "STEM Program Management and Evaluation", "solicitation_number": "DoEd-STEM-2026-042", "state": "DC", "category": "Education", "days_out": 55},
-    {"agency": "Transportation Security Administration", "title": "Workforce Training Program Development", "solicitation_number": "TSA-WTPD-2026-003", "state": "VA", "category": "Training", "days_out": 35},
+ENTITIES = ["KC Group", "KC Federal", "KC Analytics", "KC Consulting", "KC Solutions"]
+
+AGENCIES = [
+    "Department of Defense","Department of Health and Human Services",
+    "General Services Administration","Department of Veterans Affairs",
+    "Department of Homeland Security","Environmental Protection Agency",
+    "Department of Education","Transportation Security Administration",
+    "Department of Justice","Department of Energy","NASA","Department of Labor",
+    "Department of Agriculture","Department of Commerce","Department of Interior",
+    "Department of State","Department of Treasury","Department of Transportation",
+    "Social Security Administration","Office of Personnel Management",
+    "Small Business Administration","Federal Emergency Management Agency",
+    "Centers for Disease Control","National Institutes of Health",
+    "Food and Drug Administration","Bureau of Land Management",
+    "Army Corps of Engineers","Naval Facilities Engineering Command",
+    "Air Force Materiel Command","Defense Logistics Agency",
+    "Defense Information Systems Agency","Defense Contract Audit Agency",
+    "National Security Agency","Central Intelligence Agency",
+    "Federal Bureau of Investigation","Drug Enforcement Administration",
+    "Customs and Border Protection","Immigration and Customs Enforcement",
+    "Secret Service","Bureau of Alcohol Tobacco Firearms",
+    "Federal Aviation Administration","Federal Railroad Administration",
+    "Federal Highway Administration","Federal Transit Administration",
+    "National Park Service","Fish and Wildlife Service",
+    "Bureau of Indian Affairs","Bureau of Reclamation",
+    "Office of Inspector General — HHS","Office of Inspector General — DoD",
 ]
 
-TASKS_DATA = [
-    # Technical/dev tasks
-    {"title": "Set up CI/CD pipeline for proposal portal", "task_type": "task", "priority": "high", "story_points": 8, "status": "done"},
-    {"title": "Integrate GSA e-library API for opportunity sync", "task_type": "story", "priority": "highest", "story_points": 13, "status": "done"},
-    {"title": "Build automated compliance checklist generator", "task_type": "story", "priority": "high", "story_points": 8, "status": "in_progress"},
-    {"title": "Fix duplicate solicitation number validation bug", "task_type": "bug", "priority": "high", "story_points": 3, "status": "done"},
-    {"title": "Add PDF export for bid opportunity reports", "task_type": "story", "priority": "medium", "story_points": 5, "status": "in_progress"},
-    {"title": "Implement HMAC webhook signature verification", "task_type": "task", "priority": "highest", "story_points": 5, "status": "review"},
-    {"title": "Dashboard analytics — win rate by agency", "task_type": "story", "priority": "medium", "story_points": 8, "status": "todo"},
-    {"title": "User role assignment UI broken on Safari", "task_type": "bug", "priority": "high", "story_points": 2, "status": "todo"},
-
-    # Proposal tasks
-    {"title": "Draft technical approach for DoD-CARMS-2026-001", "task_type": "task", "priority": "highest", "story_points": 5, "status": "in_progress"},
-    {"title": "Compile past performance writeups — HHS bid", "task_type": "task", "priority": "high", "story_points": 3, "status": "todo"},
-    {"title": "Management plan review — GSA IDIQ", "task_type": "task", "priority": "medium", "story_points": 2, "status": "review"},
-    {"title": "Subcontractor teaming agreement — VA modernization", "task_type": "task", "priority": "high", "story_points": 3, "status": "todo"},
-    {"title": "Price volume analysis for DHS bid", "task_type": "task", "priority": "medium", "story_points": 5, "status": "todo"},
-    {"title": "Orals preparation — EPA data contract", "task_type": "task", "priority": "high", "story_points": 3, "status": "in_progress"},
-
-    # Epics / big items
-    {"title": "Phase 2: Client portal self-service module", "task_type": "epic", "priority": "medium", "story_points": 40, "status": "todo"},
-    {"title": "Multi-entity payroll support", "task_type": "epic", "priority": "low", "story_points": 21, "status": "todo"},
-
-    # Bug / ops
-    {"title": "Celery beat not running on container restart", "task_type": "bug", "priority": "high", "story_points": 2, "status": "done"},
-    {"title": "Salary slip generation fails for December", "task_type": "bug", "priority": "highest", "story_points": 3, "status": "done"},
-    {"title": "Attendance sync missing holiday entries", "task_type": "bug", "priority": "medium", "story_points": 2, "status": "in_progress"},
-    {"title": "Write onboarding documentation for new writers", "task_type": "task", "priority": "low", "story_points": 3, "status": "todo"},
-    {"title": "Quarterly performance review workflow", "task_type": "story", "priority": "medium", "story_points": 8, "status": "todo"},
-    {"title": "Notification email templates redesign", "task_type": "task", "priority": "low", "story_points": 3, "status": "backlog"},
-    {"title": "Archive completed bids older than 2 years", "task_type": "task", "priority": "low", "story_points": 2, "status": "backlog"},
-    {"title": "WCAG 2.1 accessibility audit", "task_type": "task", "priority": "medium", "story_points": 5, "status": "backlog"},
+CATEGORIES = [
+    "IT Services","Data Analytics","Administrative","Healthcare IT",
+    "Cybersecurity","Training & Education","Engineering","Environmental",
+    "Logistics","Financial Management","Program Management","Research & Development",
+    "Construction","Professional Services","Communications","Legal Services",
+    "Human Resources","Supply Chain","Intelligence Support","Medical Support",
 ]
 
-SPRINTS_DATA = [
-    {"name": "Sprint 3 — June 2026", "goal": "Ship HMAC webhook, fix critical bugs, and complete DoD technical approach", "status": "active", "offset_start": -7, "offset_end": 7},
-    {"name": "Sprint 4 — July 2026", "goal": "Analytics dashboard, compliance checklist, GSA IDIQ management plan", "status": "planning", "offset_start": 8, "offset_end": 21},
-    {"name": "Sprint 2 — May 2026", "goal": "CI/CD pipeline, API integration, past performance library", "status": "completed", "offset_start": -28, "offset_end": -14},
+STATES_LIST = [
+    "AL","AK","AZ","AR","CA","CO","CT","DC","DE","FL","GA","HI","ID","IL","IN",
+    "IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH",
+    "NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT",
+    "VT","VA","WA","WV","WI","WY",
 ]
+
+SUBMISSION_METHODS = ["sam_gov","email","portal","hand_delivery"]
+BID_STATUSES = ["in_progress","submitted","no_go","unsubmitted","cancelled","postponed"]
+BID_STATUS_WEIGHTS = [30, 25, 15, 10, 10, 10]
+
+CORP_TYPES = ["LLC","Corporation","S-Corp","Partnership","Sole Proprietorship","Non-Profit"]
+INCORP_STATES = ["Virginia","Maryland","DC","Delaware","Texas","California","New York","Florida"]
+
+TASK_TITLES = [
+    "Draft technical approach for {agency} bid",
+    "Compile past performance writeups — {category}",
+    "Review management plan — {agency}",
+    "Price volume analysis for {category} contract",
+    "Subcontractor teaming agreement — {agency}",
+    "Orals preparation — {category}",
+    "Build compliance checklist for {category}",
+    "Update resumes for key personnel",
+    "Review and finalize solicitation amendments",
+    "Conduct competitor analysis — {agency}",
+    "Prepare executive summary — {category}",
+    "Coordinate with subcontractors for {agency}",
+    "Submit SAM.gov registration renewal",
+    "Draft data management plan — {category}",
+    "Quality review pass — {agency} proposal",
+    "Set up CI/CD pipeline for {category} portal",
+    "Fix authentication bug in client dashboard",
+    "Integrate API for opportunity sync",
+    "Add PDF export for {category} reports",
+    "Automate compliance checklist generation",
+    "Redesign notification email templates",
+    "Implement HMAC webhook signature verification",
+    "Dashboard analytics — win rate by {agency}",
+    "Archive completed bids — {category}",
+    "WCAG 2.1 accessibility audit",
+    "Write onboarding docs for new writers",
+    "Quarterly performance review workflow",
+    "Multi-entity payroll support — phase 2",
+    "Mobile responsiveness fixes — {category} module",
+    "Add bulk-import for {category} opportunities",
+    "Refactor bid status FSM for clarity",
+    "Write unit tests for proposal scoring engine",
+    "Security penetration test findings remediation",
+    "Set up staging environment for {agency}",
+    "Database query optimisation — board view",
+    "Research {agency} procurement history",
+    "Map {category} requirements matrix",
+    "Identify teaming partners for {agency}",
+    "Prepare questions for pre-bid conference",
+    "Debrief analysis — lost bid to {agency}",
+    "Update win/loss tracker with Q2 data",
+    "Create proposal style guide",
+    "Standardise section templates — {category}",
+    "Review small-business set-aside eligibility",
+    "Kickoff meeting prep — {agency} award",
+    "Coordinate BAFO response — {agency}",
+    "Budget reconciliation — {category} project",
+    "Develop risk register for active bids",
+    "Update CPARS ratings database",
+    "Onboard new proposal writer — orientation tasks",
+]
+
+TASK_TYPES = ["task","story","bug","epic"]
+TASK_TYPE_WEIGHTS = [45, 30, 15, 10]
+PRIORITIES = ["highest","high","medium","low","lowest"]
+PRIORITY_WEIGHTS = [10, 20, 40, 20, 10]
+TASK_STATUSES_BOARD = ["todo","in_progress","review","done","blocked"]
+
+SPRINT_GOALS = [
+    "Ship compliance checklist and fix critical authentication bugs",
+    "GSA IDIQ proposal delivery and API integration milestone",
+    "Dashboard analytics v1 and notification email redesign",
+    "Close DoD bid cycle — orals prep, BAFO, debrief",
+    "Payroll multi-entity support and Q2 reporting",
+    "Mobile responsiveness and accessibility audit completion",
+    "Bulk import feature and staging environment setup",
+    "HHS data analytics platform — technical approach milestone",
+    "Security remediation sprint — penetration test findings",
+    "Onboarding automation and proposal template standardisation",
+    "VA healthcare IT proposal submission",
+    "DHS border security bid — price volume and teaming",
+    "EPA data contract orals and past performance compilation",
+    "Performance optimisation — board view and payroll queries",
+    "New writer onboarding and style guide completion",
+    "Q3 planning and win-loss analysis",
+    "Federal proposals refresh — key personnel resumes",
+    "Client portal self-service module — phase 1",
+    "DoEd STEM bid kickoff and requirements matrix",
+    "TSA training programme proposal — management plan",
+]
+
+NOTIF_TEMPLATES = [
+    lambda emp, mgr, task: dict(
+        kind='task_assigned', is_read=random.random() > 0.45,
+        title=f'You were assigned {task.key}',
+        body=task.title, link=f'/tasks?task={task.id}',
+    ),
+    lambda emp, mgr, task: dict(
+        kind='leave_submitted', is_read=random.random() > 0.5,
+        title=f'{emp.first_name} {emp.last_name} submitted a leave request',
+        body='Sick leave — 2 days. Please review.',
+        link='/hrms/leaves',
+    ),
+    lambda emp, mgr, task: dict(
+        kind='leave_approved', is_read=random.random() > 0.3,
+        title='Your leave request was approved',
+        body=f'Approved by {mgr.first_name} {mgr.last_name}.',
+        link='/hrms/leaves',
+    ),
+    lambda emp, mgr, task: dict(
+        kind='leave_rejected', is_read=random.random() > 0.6,
+        title='Your leave request was declined',
+        body='Insufficient staffing during the requested period.',
+        link='/hrms/leaves',
+    ),
+    lambda emp, mgr, task: dict(
+        kind='incentive_granted', is_read=random.random() > 0.2,
+        title='Performance incentive granted',
+        body=f'${random.randint(2,10)*500} incentive approved for this quarter.',
+        link='/hrms/payroll',
+    ),
+    lambda emp, mgr, task: dict(
+        kind='document_received', is_read=random.random() > 0.5,
+        title='New document shared with you',
+        body='Your updated offer letter is ready for review.',
+        link='/documents',
+    ),
+    lambda emp, mgr, task: dict(
+        kind='document_request', is_read=random.random() > 0.4,
+        title=f'{emp.first_name} requested a document',
+        body='Experience letter requested.',
+        link='/documents',
+    ),
+]
+
+LEAVE_TYPES = ['sick', 'casual', 'earned', 'unpaid']
+LEAVE_TYPE_WEIGHTS = [30, 30, 30, 10]
+
+
+def _rand_name():
+    return random.choice(FIRST_NAMES), random.choice(LAST_NAMES)
+
+
+def _rand_email(first, last, domain_suffix, existing):
+    base = f"{first.lower()}.{last.lower()}"
+    candidate = f"{base}@{domain_suffix}"
+    n = 1
+    while candidate in existing:
+        candidate = f"{base}{n}@{domain_suffix}"
+        n += 1
+    existing.add(candidate)
+    return candidate
+
+
+def _rand_shortcode(name, existing):
+    words = name.split()
+    base = ''.join(w[0] for w in words[:4]).upper()
+    if len(base) < 2:
+        base = name[:4].upper()
+    candidate = base
+    n = 2
+    while candidate in existing:
+        candidate = f"{base}{n}"
+        n += 1
+    existing.add(candidate)
+    return candidate
 
 
 class Command(BaseCommand):
-    help = 'Seeds the database with comprehensive dummy data (users, teams, clients, bids, tasks, attendance)'
+    help = 'Seed full company snapshot — 10 mgrs, 50 emps, 100 clients, 500 bids, 20 sprints, attendance & leaves'
 
     def handle(self, *args, **options):
         from bids.models import Client, BidOpportunity, ClientBid
         from tasks.models import Team, Task, Sprint, TaskKeyCounter
-        from hrms.models import LeaveBalance, LeaveRequest, Attendance, AttendanceSession, Compensation
-
-        self.stdout.write(self.style.MIGRATE_HEADING('=== KAI Portal — Full Data Seed ==='))
-
-        # ── 1. Users ──────────────────────────────────────────────────────────
-        self.stdout.write('\n[1/6] Creating users...')
-        created_users = {}
-        managers = []
-
-        for ud in USERS_DATA:
-            user, created = User.objects.get_or_create(
-                email=ud['email'],
-                defaults={
-                    'first_name': ud['first_name'],
-                    'last_name': ud['last_name'],
-                    'role': ud['role'],
-                    'sub_position': ud.get('sub_position'),
-                    'phone_number': ud.get('phone'),
-                    'must_change_password': False,
-                    'date_of_joining': date.today() - timedelta(days=random.randint(90, 900)),
-                    'entity': random.choice(['KC Group', 'KC Federal', 'KC Analytics']),
-                    'is_active': True,
-                }
-            )
-            if created:
-                user.set_password('Demo@1234')
-                if user.role in ('Manager',):
-                    managers.append(user)
-                if user.role == 'Employee':
-                    comp, _ = Compensation.objects.get_or_create(
-                        employee=user,
-                        defaults={'monthly_base_salary': Decimal(str(random.randint(55, 120) * 100))}
-                    )
-                    LeaveBalance.objects.get_or_create(employee=user)
-                user.save()
-                self.stdout.write(f'  + {user.email} ({user.role})')
-            else:
-                self.stdout.write(self.style.WARNING(f'  ~ {user.email} already exists'))
-            created_users[ud['email']] = user
-
-        # Assign managers to employees
-        mgr_list = [u for u in created_users.values() if u.role == 'Manager']
-        for user in created_users.values():
-            if user.role == 'Employee' and not user.manager_id and mgr_list:
-                user.manager = random.choice(mgr_list)
-                user.save(update_fields=['manager'])
-
-        self.stdout.write(self.style.SUCCESS(f'  Done — {len(created_users)} users'))
-
-        # ── 2. Teams ──────────────────────────────────────────────────────────
-        self.stdout.write('\n[2/6] Creating teams...')
-        created_teams = []
-        for td in TEAMS_DATA:
-            lead = created_users.get(td['lead'])
-            team, created = Team.objects.get_or_create(
-                name=td['name'],
-                defaults={'description': td['description'], 'lead': lead, 'is_active': True}
-            )
-            if not created:
-                self.stdout.write(self.style.WARNING(f'  ~ Team "{team.name}" already exists'))
-            else:
-                self.stdout.write(f'  + Team: {team.name}')
-            for email in td['members']:
-                member = created_users.get(email)
-                if member:
-                    team.members.add(member)
-            created_teams.append(team)
-        self.stdout.write(self.style.SUCCESS(f'  Done — {len(created_teams)} teams'))
-
-        # ── 3. Clients ────────────────────────────────────────────────────────
-        self.stdout.write('\n[3/6] Creating clients...')
-        created_clients = []
-        for cd in CLIENTS_DATA:
-            client, created = Client.objects.get_or_create(
-                shortcode=cd['shortcode'],
-                defaults={
-                    'name': cd['name'],
-                    'corporation_type': cd['corporation_type'],
-                    'state_of_incorporation': cd['state_of_incorporation'],
-                    'website': cd['website'],
-                    'address': cd['address'],
-                }
-            )
-            if created:
-                self.stdout.write(f'  + Client: {client.name}')
-            else:
-                self.stdout.write(self.style.WARNING(f'  ~ Client "{client.name}" already exists'))
-            created_clients.append(client)
-        self.stdout.write(self.style.SUCCESS(f'  Done — {len(created_clients)} clients'))
-
-        # ── 4. Bids ───────────────────────────────────────────────────────────
-        self.stdout.write('\n[4/6] Creating bid opportunities and client bids...')
-        writers = [u for u in created_users.values() if u.role == 'Employee' and u.sub_position == 'Proposal Writer']
-        presales = [u for u in created_users.values() if u.role in ('Manager', 'Employee')]
-        bid_statuses = ['in_progress', 'submitted', 'no_go', 'unsubmitted', 'in_progress', 'in_progress']
-
-        for od in OPPORTUNITIES_DATA:
-            opp, created = BidOpportunity.objects.get_or_create(
-                solicitation_number=od['solicitation_number'],
-                defaults={
-                    'agency': od['agency'],
-                    'title': od['title'],
-                    'state': od['state'],
-                    'due_date': timezone.now() + timedelta(days=od['days_out']),
-                    'category': od['category'],
-                }
-            )
-            if created:
-                self.stdout.write(f'  + Opportunity: {od["solicitation_number"]}')
-            else:
-                self.stdout.write(self.style.WARNING(f'  ~ Opp {od["solicitation_number"]} already exists'))
-
-            # Create 1-3 client bids per opportunity
-            for client in random.sample(created_clients, k=random.randint(1, 3)):
-                if not ClientBid.objects.filter(opportunity=opp, client=client).exists():
-                    ClientBid.objects.create(
-                        opportunity=opp,
-                        client=client,
-                        kc_brand=client.shortcode + '-' + random.choice(['PRIME', 'SUB', 'JV']),
-                        status=random.choice(bid_statuses),
-                        presales_person=random.choice(presales) if presales else None,
-                        writer=random.choice(writers) if writers else None,
-                        internal_deadline=timezone.now() + timedelta(days=od['days_out'] - 5),
-                        submission_method=random.choice(['sam_gov', 'email', 'portal', 'hand_delivery']),
-                        comments='Auto-generated seed data.',
-                    )
-        self.stdout.write(self.style.SUCCESS(f'  Done — {len(OPPORTUNITIES_DATA)} opportunities seeded'))
-
-        # ── 5. Sprints + Tasks ────────────────────────────────────────────────
-        self.stdout.write('\n[5/6] Creating sprints and tasks...')
-        today = date.today()
-        sprint_objs = []
-        for sd in SPRINTS_DATA:
-            sprint, created = Sprint.objects.get_or_create(
-                name=sd['name'],
-                defaults={
-                    'goal': sd['goal'],
-                    'status': sd['status'],
-                    'start_date': today + timedelta(days=sd['offset_start']),
-                    'end_date': today + timedelta(days=sd['offset_end']),
-                    'team': created_teams[0] if created_teams else None,
-                }
-            )
-            if created:
-                self.stdout.write(f'  + Sprint: {sprint.name} ({sprint.status})')
-            else:
-                self.stdout.write(self.style.WARNING(f'  ~ Sprint "{sprint.name}" already exists'))
-            sprint_objs.append(sprint)
-
-        active_sprint = next((s for s in sprint_objs if s.status == 'active'), None)
-        planning_sprint = next((s for s in sprint_objs if s.status == 'planning'), None)
-        completed_sprint = next((s for s in sprint_objs if s.status == 'completed'), None)
-
-        employees = [u for u in created_users.values() if u.role in ('Employee', 'Manager')]
-        position = 0
-
-        for td in TASKS_DATA:
-            if Task.objects.filter(title=td['title']).exists():
-                continue
-
-            # Assign sprint based on status hint
-            if td.get('status') == 'backlog' or td['status'] == 'todo' and random.random() < 0.3:
-                sprint = None
-                task_status = 'todo'
-            elif td['status'] in ('done', 'review') and completed_sprint:
-                sprint = completed_sprint
-                task_status = td['status']
-            elif td['status'] in ('in_progress', 'review') and active_sprint:
-                sprint = active_sprint
-                task_status = td['status']
-            elif td['status'] == 'done' and active_sprint:
-                sprint = active_sprint
-                task_status = 'done'
-            elif td['status'] == 'todo' and planning_sprint and random.random() < 0.5:
-                sprint = planning_sprint
-                task_status = 'todo'
-            else:
-                sprint = None
-                task_status = 'todo'
-
-            assignee = random.choice(employees) if employees else None
-            team = random.choice(created_teams) if created_teams else None
-
-            due = timezone.now() + timedelta(days=random.randint(3, 30))
-            start = (today - timedelta(days=random.randint(1, 7)))
-
-            task = Task(
-                title=td['title'],
-                task_type=td['task_type'],
-                priority=td['priority'],
-                story_points=td.get('story_points'),
-                status=task_status,
-                sprint=sprint,
-                assignee=assignee,
-                reporter=random.choice(mgr_list) if mgr_list else None,
-                created_by=random.choice(mgr_list) if mgr_list else None,
-                team=team,
-                start_date=start,
-                due_date=due,
-                position=float(position),
-                labels=[td['task_type'], td['priority']] if random.random() > 0.5 else [],
-            )
-            task.save()
-            position += 1
-            self.stdout.write(f'  + Task [{task.key}]: {task.title[:50]}')
-
-        self.stdout.write(self.style.SUCCESS(f'  Done — tasks seeded'))
-
-        # ── 6. Attendance ─────────────────────────────────────────────────────
-        self.stdout.write('\n[6/7] Seeding attendance data (last 30 days)...')
-        att_employees = [u for u in created_users.values() if u.role in ('Employee', 'Manager')]
-
-        # Weekday weights: mostly present, some leaves/half-days
-        day_status_weights = [
-            ('present', 75), ('present', 0), ('half_day', 8),
-            ('leave', 7), ('absent', 5), ('holiday', 5),
-        ]
-        choices, weights = zip(*[(s, w) for s, w in day_status_weights if w > 0])
-
-        att_created = 0
-        for emp in att_employees:
-            for day_offset in range(30, 0, -1):
-                att_date = today - timedelta(days=day_offset)
-                if att_date.weekday() >= 5:  # skip weekends
-                    continue
-                if Attendance.objects.filter(employee=emp, date=att_date).exists():
-                    continue
-
-                status = random.choices(choices, weights=weights)[0]
-                att = Attendance.objects.create(
-                    employee=emp,
-                    date=att_date,
-                    status=status,
-                    marked_by_admin=True,
-                )
-                att_created += 1
-
-                if status == 'present':
-                    clock_in = time(random.randint(8, 9), random.randint(0, 59))
-                    clock_out = time(random.randint(17, 18), random.randint(0, 59))
-                    AttendanceSession.objects.create(attendance=att, clock_in_time=clock_in, clock_out_time=clock_out)
-                elif status == 'half_day':
-                    clock_in = time(random.randint(9, 10), random.randint(0, 59))
-                    clock_out = time(random.randint(13, 14), random.randint(0, 59))
-                    AttendanceSession.objects.create(attendance=att, clock_in_time=clock_in, clock_out_time=clock_out)
-
-        self.stdout.write(self.style.SUCCESS(f'  Done — {att_created} attendance records'))
-
-        # ── Leave requests ────────────────────────────────────────────────────
-        leave_types = ['sick', 'casual', 'earned']
-        leave_statuses = ['approved', 'approved', 'pending', 'rejected']
-        leave_created = 0
-        for emp in att_employees[:8]:  # seed for first 8 employees
-            if LeaveRequest.objects.filter(employee=emp).exists():
-                continue
-            leave_type = random.choice(leave_types)
-            from_date = today - timedelta(days=random.randint(5, 25))
-            to_date = from_date + timedelta(days=random.randint(1, 3))
-            lst = random.choice(leave_statuses)
-            reviewer = random.choice(mgr_list) if mgr_list else None
-            LeaveRequest.objects.create(
-                employee=emp,
-                leave_type=leave_type,
-                from_date=from_date,
-                to_date=to_date,
-                total_days=(to_date - from_date).days + 1,
-                reason=f'Personal {leave_type} leave request.',
-                status=lst,
-                reviewed_by=reviewer if lst in ('approved', 'rejected') else None,
-                reviewed_on=timezone.now() if lst in ('approved', 'rejected') else None,
-            )
-            leave_created += 1
-
-        self.stdout.write(self.style.SUCCESS(f'  Done — {leave_created} leave requests'))
-
-        # ── 7. Notifications ──────────────────────────────────────────────────
-        self.stdout.write('\n[7/7] Seeding notifications...')
+        from hrms.models import (LeaveBalance, LeaveRequest, Attendance,
+                                  AttendanceSession, Compensation)
         from notifications.models import Notification
 
-        notification_templates = [
-            # task_assigned — sent to assignee, actor is a manager
-            lambda emp, mgr, task: dict(
-                recipient=emp, actor=mgr, kind='task_assigned',
-                title=f'You were assigned {task.key}',
-                body=task.title,
-                link=f'/tasks?task={task.id}',
-                is_read=random.random() > 0.4,
-            ),
-            # leave_submitted — sent to manager
-            lambda emp, mgr, _: dict(
-                recipient=mgr, actor=emp, kind='leave_submitted',
-                title=f'{emp.first_name} {emp.last_name} submitted a leave request',
-                body='Casual leave — 2 days. Please review.',
-                link='/hrms/leaves',
-                is_read=random.random() > 0.5,
-            ),
-            # leave_approved — sent to employee
-            lambda emp, mgr, _: dict(
-                recipient=emp, actor=mgr, kind='leave_approved',
-                title='Your leave request was approved',
-                body=f'Approved by {mgr.first_name} {mgr.last_name}.',
-                link='/hrms/leaves',
-                is_read=random.random() > 0.3,
-            ),
-            # leave_rejected — sent to employee
-            lambda emp, mgr, _: dict(
-                recipient=emp, actor=mgr, kind='leave_rejected',
-                title='Your leave request was declined',
-                body='Reason: Insufficient staffing during the requested period.',
-                link='/hrms/leaves',
-                is_read=random.random() > 0.6,
-            ),
-            # incentive_granted — sent to employee
-            lambda emp, mgr, _: dict(
-                recipient=emp, actor=mgr, kind='incentive_granted',
-                title='Performance incentive granted',
-                body=f'${random.randint(2, 10) * 500} incentive approved for this quarter.',
-                link='/hrms/payroll',
-                is_read=random.random() > 0.2,
-            ),
-            # document_received — sent to employee
-            lambda emp, mgr, _: dict(
-                recipient=emp, actor=mgr, kind='document_received',
-                title='New document shared with you',
-                body='Your updated offer letter is ready for review.',
-                link='/documents',
-                is_read=random.random() > 0.5,
-            ),
-            # document_request — sent to manager
-            lambda emp, mgr, _: dict(
-                recipient=mgr, actor=emp, kind='document_request',
-                title=f'{emp.first_name} requested a document',
-                body='Experience letter requested.',
-                link='/documents',
-                is_read=random.random() > 0.4,
-            ),
-        ]
+        today = date.today()
+        year_ago = today - timedelta(days=365)
 
-        tasks_list = list(Task.objects.all()[:20])
-        notif_created = 0
+        # ── 1. Users ──────────────────────────────────────────────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING('\n[1/7] Creating users...'))
+        existing_emails = set(User.objects.values_list('email', flat=True))
+
+        managers, employees, hr_staff = [], [], []
+
+        def _make_user(role, sub_pos, domain='kaiportal.com'):
+            fn, ln = _rand_name()
+            email = _rand_email(fn, ln, domain, existing_emails)
+            doj = today - timedelta(days=random.randint(60, 1200))
+            u = User(
+                email=email, first_name=fn, last_name=ln,
+                role=role, sub_position=sub_pos,
+                phone_number=f'+1-{random.randint(200,999)}-555-{random.randint(1000,9999)}',
+                date_of_joining=doj,
+                entity=random.choice(ENTITIES),
+                must_change_password=False, is_active=True,
+            )
+            u.set_password('Demo@1234')
+            return u
+
+        # Build user objects (not yet saved)
+        mgr_objs = [_make_user('Manager', random.choice(['Senior VP', 'Team Lead'])) for _ in range(10)]
+        emp_objs = [_make_user('Employee', random.choice(SUB_POSITIONS)) for _ in range(50)]
+        hr_objs  = [_make_user('Manager', 'Team Lead') for _ in range(5)]
+
+        all_internal = mgr_objs + emp_objs + hr_objs
+        User.objects.bulk_create(all_internal, ignore_conflicts=True)
+
+        # Re-fetch saved users
+        all_emails = {u.email for u in all_internal}
+        saved_users = {u.email: u for u in User.objects.filter(email__in=all_emails)}
+
+        managers  = [saved_users[u.email] for u in mgr_objs if u.email in saved_users]
+        employees = [saved_users[u.email] for u in emp_objs if u.email in saved_users]
+        hr_staff  = [saved_users[u.email] for u in hr_objs  if u.email in saved_users]
+        internal  = managers + employees + hr_staff
+
+        # Assign managers to employees
+        with transaction.atomic():
+            for u in employees + hr_staff:
+                if not u.manager_id and managers:
+                    u.manager = random.choice(managers)
+                    u.save(update_fields=['manager'])
+
+        # Compensation + LeaveBalance
+        Compensation.objects.bulk_create([
+            Compensation(employee=u, monthly_base_salary=Decimal(str(random.randint(50, 150) * 100)))
+            for u in internal if not hasattr(u, '_comp_done')
+        ], ignore_conflicts=True)
+        LeaveBalance.objects.bulk_create([
+            LeaveBalance(employee=u) for u in internal
+        ], ignore_conflicts=True)
+
+        self.stdout.write(self.style.SUCCESS(f'  {len(internal)} internal users created'))
+
+        # ── 2. Teams ──────────────────────────────────────────────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING('\n[2/7] Creating teams...'))
+        team_defs = [
+            ("Federal Proposals",   "Federal civilian and defense bid writing"),
+            ("State & Local",       "State, county and city government pursuits"),
+            ("Data & Analytics",    "Data collection, analysis and reporting"),
+            ("Operations",          "Internal admin, HR and finance support"),
+            ("IT & Engineering",    "Technical proposal writing and dev support"),
+            ("Healthcare Division", "HHS, VA, CDC and NIH proposals"),
+            ("Training & Learning", "DoEd, TSA, DHS training programme bids"),
+            ("Environment & Energy","EPA, DOE and interior department pursuits"),
+        ]
+        created_teams = []
+        emp_pool = list(employees)
+        for tname, tdesc in team_defs:
+            lead = random.choice(managers)
+            team, _ = Team.objects.get_or_create(
+                name=tname, defaults={'description': tdesc, 'lead': lead, 'is_active': True}
+            )
+            chunk = random.sample(emp_pool, k=min(random.randint(5, 10), len(emp_pool)))
+            team.members.add(*chunk)
+            created_teams.append(team)
+        self.stdout.write(self.style.SUCCESS(f'  {len(created_teams)} teams created'))
+
+        # ── 3. Clients (100) ─────────────────────────────────────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING('\n[3/7] Creating 100 client companies...'))
+        existing_codes = set(Client.objects.values_list('shortcode', flat=True))
+        suffixes = ["Inc.","LLC","Corp.","Solutions","Group","Partners","Associates",
+                    "Consulting","Services","Technologies","Dynamics","Systems","Federal",
+                    "Government Solutions","Defense Contractors","Global","International"]
+        client_objs = []
+        client_existing_emails = set(User.objects.values_list('email', flat=True))
+        used_names = set(Client.objects.values_list('name', flat=True))
+
+        for _ in range(100):
+            fn, ln = _rand_name()
+            company = f"{ln} {random.choice(suffixes)}"
+            if company in used_names:
+                company = f"{fn} {ln} {random.choice(suffixes)}"
+            used_names.add(company)
+            sc = _rand_shortcode(company, existing_codes)
+            client_objs.append(Client(
+                name=company, shortcode=sc,
+                corporation_type=random.choice(CORP_TYPES),
+                state_of_incorporation=random.choice(INCORP_STATES),
+                website=f"https://{sc.lower()}.com",
+                address=f"{random.randint(100,9999)} {random.choice(['Main','Oak','Elm','Market','Commerce'])} "
+                        f"{random.choice(['St','Ave','Blvd','Dr'])}, "
+                        f"{random.choice(INCORP_STATES)} {random.randint(10000,99999)}",
+                phone=f'+1-{random.randint(200,999)}-{random.randint(200,999)}-{random.randint(1000,9999)}',
+                notes='Auto-generated seed client.',
+            ))
+
+        Client.objects.bulk_create(client_objs, ignore_conflicts=True)
+        all_clients = list(Client.objects.all())
+        self.stdout.write(self.style.SUCCESS(f'  {len(all_clients)} clients in DB'))
+
+        # ── 4. Bid Opportunities (500) + Client Bids (~1 000) ─────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING('\n[4/7] Creating 500 opportunities + ~1 000 client bids...'))
+        existing_sol = set(BidOpportunity.objects.values_list('solicitation_number', flat=True))
+
+        opp_objs = []
+        sol_counter = BidOpportunity.objects.count() + 1
+        for i in range(500):
+            agency = random.choice(AGENCIES)
+            category = random.choice(CATEGORIES)
+            sol_num = f"SOL-{sol_counter:05d}-{random.randint(100,999)}"
+            while sol_num in existing_sol:
+                sol_counter += 1
+                sol_num = f"SOL-{sol_counter:05d}-{random.randint(100,999)}"
+            existing_sol.add(sol_num)
+            sol_counter += 1
+            days_out = random.randint(-30, 180)
+            opp_objs.append(BidOpportunity(
+                agency=agency,
+                title=f"{category} Support Services — {agency.split()[0]} {random.randint(2024,2027)}-{random.randint(1,99):02d}",
+                solicitation_number=sol_num,
+                state=random.choice(STATES_LIST),
+                due_date=timezone.now() + timedelta(days=days_out),
+                category=category,
+                bid_link=f"https://sam.gov/opp/{sol_num}",
+                pre_bid_info="Pre-bid conference details TBD." if random.random() > 0.6 else "",
+            ))
+
+        BidOpportunity.objects.bulk_create(opp_objs, ignore_conflicts=True)
+        all_opps = list(BidOpportunity.objects.all())
+        self.stdout.write(self.style.SUCCESS(f'  {len(all_opps)} opportunities in DB'))
+
+        writers   = [u for u in employees if u.sub_position == 'Proposal Writer'] or employees[:10]
+        presales  = managers + employees[:15]
+
+        bid_objs = []
+        existing_bids = set(
+            ClientBid.objects.values_list('opportunity_id', 'client_id')
+        )
+        random.shuffle(all_opps)
+        bids_made = 0
+        for opp in all_opps:
+            n_bids = random.randint(1, 3)
+            for client in random.sample(all_clients, k=min(n_bids, len(all_clients))):
+                if (opp.id, client.id) in existing_bids:
+                    continue
+                existing_bids.add((opp.id, client.id))
+                st = random.choices(BID_STATUSES, weights=BID_STATUS_WEIGHTS)[0]
+                bid_objs.append(ClientBid(
+                    opportunity=opp, client=client,
+                    kc_brand=f"{client.shortcode}-{random.choice(['PRIME','SUB','JV'])}",
+                    status=st,
+                    presales_person=random.choice(presales) if presales else None,
+                    writer=random.choice(writers) if writers else None,
+                    internal_deadline=opp.due_date - timedelta(days=random.randint(3, 10)),
+                    submission_method=random.choice(SUBMISSION_METHODS),
+                    comments='Seeded.',
+                ))
+                bids_made += 1
+                if bids_made >= 1000:
+                    break
+            if bids_made >= 1000:
+                break
+
+        ClientBid.objects.bulk_create(bid_objs, ignore_conflicts=True, batch_size=200)
+        self.stdout.write(self.style.SUCCESS(f'  {bids_made} client bids created'))
+
+        # ── 5. Sprints (20) + Tasks ───────────────────────────────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING('\n[5/7] Creating 20 sprints + tasks...'))
+
+        sprint_objs_saved = []
+        sprint_start = today - timedelta(days=19 * 14)  # sprints go back ~9 months
+        for i, goal in enumerate(SPRINT_GOALS):
+            s_start = sprint_start + timedelta(days=i * 14)
+            s_end   = s_start + timedelta(days=13)
+            if s_end < today - timedelta(days=1):
+                status = 'completed'
+            elif s_start <= today <= s_end:
+                status = 'active'
+            else:
+                status = 'planning'
+
+            sprint, _ = Sprint.objects.get_or_create(
+                name=f'Sprint {i+1} — {s_start.strftime("%b %Y")}',
+                defaults={
+                    'goal': goal,
+                    'status': status,
+                    'start_date': s_start,
+                    'end_date': s_end,
+                    'team': random.choice(created_teams) if created_teams else None,
+                }
+            )
+            sprint_objs_saved.append(sprint)
+
+        # Enforce at most 1 active sprint
+        active_sprints = [s for s in sprint_objs_saved if s.status == 'active']
+        for extra in active_sprints[1:]:
+            extra.status = 'planning'
+            extra.save(update_fields=['status'])
+
+        self.stdout.write(f'  {len(sprint_objs_saved)} sprints created')
+
+        # Tasks for sprints (10-20 each)
+        task_count = 0
+        position = float(Task.objects.count())
+
+        def _make_task(title, sprint, status, assignee, team):
+            nonlocal position
+            task = Task(
+                title=title,
+                task_type=random.choices(TASK_TYPES, weights=TASK_TYPE_WEIGHTS)[0],
+                priority=random.choices(PRIORITIES, weights=PRIORITY_WEIGHTS)[0],
+                story_points=random.choice([1,2,3,5,8,13,None,None]),
+                status=status,
+                sprint=sprint,
+                assignee=assignee,
+                reporter=random.choice(managers) if managers else None,
+                created_by=random.choice(managers) if managers else None,
+                team=team,
+                start_date=today - timedelta(days=random.randint(1,14)),
+                due_date=timezone.now() + timedelta(days=random.randint(1,30)),
+                position=position,
+                labels=random.sample(['proposal','federal','data','urgent','review','blocked'], k=random.randint(0,2)),
+                description='Auto-generated seed task.',
+            )
+            position += 1
+            return task
+
+        def _task_title():
+            tmpl = random.choice(TASK_TITLES)
+            return tmpl.format(
+                agency=random.choice(AGENCIES).split()[0],
+                category=random.choice(CATEGORIES),
+            )[:255]
+
+        for sprint in sprint_objs_saved:
+            n = random.randint(10, 20)
+            if sprint.status == 'completed':
+                statuses = ['done'] * 7 + ['done', 'todo', 'in_progress']
+            elif sprint.status == 'active':
+                statuses = ['todo', 'in_progress', 'review', 'done', 'blocked',
+                            'in_progress', 'todo', 'done', 'review', 'in_progress']
+            else:
+                statuses = ['todo'] * 8 + ['todo', 'todo']
+
+            for _ in range(n):
+                t = _make_task(
+                    _task_title(),
+                    sprint,
+                    random.choice(statuses),
+                    random.choice(internal) if internal else None,
+                    random.choice(created_teams) if created_teams else None,
+                )
+                t.save()
+                task_count += 1
+
+        self.stdout.write(f'  {task_count} sprint tasks created')
+
+        # Backlog tasks (200)
+        self.stdout.write('  Creating 200 backlog tasks...')
+        for _ in range(200):
+            t = _make_task(
+                _task_title(), None, 'todo',
+                random.choice(internal) if internal else None,
+                random.choice(created_teams) if created_teams else None,
+            )
+            t.save()
+            task_count += 1
+
+        self.stdout.write(self.style.SUCCESS(f'  Total tasks: {task_count}'))
+
+        # ── 6. Attendance (1 year) + Leaves ───────────────────────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING('\n[6/7] Seeding 1 year attendance + leave records...'))
+
+        att_employees = employees + managers + hr_staff
+        existing_att = set(Attendance.objects.values_list('employee_id', 'date'))
+
+        att_batch, session_batch = [], []
+        WORKDAY_STATUSES = ['present','present','present','present','present',
+                            'present','half_day','leave','absent']
 
         for emp in att_employees:
-            if not mgr_list:
-                continue
-            mgr = emp.manager or random.choice(mgr_list)
-            task = random.choice(tasks_list) if tasks_list else None
+            for offset in range(365, 0, -1):
+                att_date = today - timedelta(days=offset)
+                if att_date.weekday() >= 5:
+                    continue
+                if (emp.id, att_date) in existing_att:
+                    continue
+                existing_att.add((emp.id, att_date))
+                st = random.choice(WORKDAY_STATUSES)
+                att = Attendance(employee=emp, date=att_date, status=st, marked_by_admin=True)
+                att_batch.append(att)
 
-            # Pick 2-5 random notification types per employee
-            chosen = random.sample(notification_templates, k=min(random.randint(2, 5), len(notification_templates)))
-            for template in chosen:
+        Attendance.objects.bulk_create(att_batch, batch_size=500, ignore_conflicts=True)
+        self.stdout.write(f'  {len(att_batch)} attendance records created')
+
+        # Clock-in/out sessions for present/half_day records
+        saved_atts = Attendance.objects.filter(
+            employee__in=att_employees,
+            status__in=['present', 'half_day'],
+            date__gte=year_ago,
+        ).exclude(sessions__isnull=False)  # skip ones that already have sessions
+
+        for att in saved_atts:
+            if att.status == 'present':
+                cin  = time(random.randint(8, 9),  random.randint(0, 59))
+                cout = time(random.randint(17, 18), random.randint(0, 59))
+            else:
+                cin  = time(random.randint(9, 10), random.randint(0, 59))
+                cout = time(random.randint(13, 14), random.randint(0, 59))
+            session_batch.append(AttendanceSession(attendance=att, clock_in_time=cin, clock_out_time=cout))
+
+        AttendanceSession.objects.bulk_create(session_batch, batch_size=500, ignore_conflicts=True)
+        self.stdout.write(f'  {len(session_batch)} clock-in/out sessions created')
+
+        # Leave requests — approved/rejected (historical)
+        leave_batch = []
+        existing_leaves = set(LeaveRequest.objects.values_list('employee_id', 'from_date'))
+        hist_statuses = ['approved'] * 6 + ['rejected'] * 2 + ['approved']
+
+        for emp in att_employees:
+            for _ in range(random.randint(3, 7)):
+                from_date = today - timedelta(days=random.randint(10, 360))
+                if from_date.weekday() >= 5:
+                    from_date -= timedelta(days=from_date.weekday() - 4)
+                to_date = from_date + timedelta(days=random.randint(1, 4))
+                if (emp.id, from_date) in existing_leaves:
+                    continue
+                existing_leaves.add((emp.id, from_date))
+                lt = random.choices(LEAVE_TYPES, weights=LEAVE_TYPE_WEIGHTS)[0]
+                st = random.choice(hist_statuses)
+                reviewer = emp.manager or (random.choice(managers) if managers else None)
+                leave_batch.append(LeaveRequest(
+                    employee=emp, leave_type=lt,
+                    from_date=from_date, to_date=to_date,
+                    total_days=(to_date - from_date).days + 1,
+                    reason=f'{lt.capitalize()} leave.',
+                    status=st,
+                    reviewed_by=reviewer if st != 'pending' else None,
+                    reviewed_on=timezone.now() - timedelta(days=random.randint(1,30)) if st != 'pending' else None,
+                ))
+
+        # 30 active (pending) leave applications
+        pending_pool = random.sample(att_employees, k=min(30, len(att_employees)))
+        for emp in pending_pool:
+            from_date = today + timedelta(days=random.randint(1, 14))
+            if from_date.weekday() >= 5:
+                from_date += timedelta(days=7 - from_date.weekday())
+            to_date = from_date + timedelta(days=random.randint(1, 3))
+            if (emp.id, from_date) in existing_leaves:
+                continue
+            existing_leaves.add((emp.id, from_date))
+            lt = random.choices(LEAVE_TYPES, weights=LEAVE_TYPE_WEIGHTS)[0]
+            leave_batch.append(LeaveRequest(
+                employee=emp, leave_type=lt,
+                from_date=from_date, to_date=to_date,
+                total_days=(to_date - from_date).days + 1,
+                reason=f'Planned {lt} leave.',
+                status='pending',
+            ))
+
+        LeaveRequest.objects.bulk_create(leave_batch, batch_size=200, ignore_conflicts=True)
+        self.stdout.write(self.style.SUCCESS(f'  {len(leave_batch)} leave requests created (30 pending)'))
+
+        # ── 7. Notifications ──────────────────────────────────────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING('\n[7/7] Seeding notifications...'))
+        tasks_sample = list(Task.objects.all()[:50])
+        notif_batch = []
+
+        for emp in att_employees:
+            mgr = emp.manager or (random.choice(managers) if managers else emp)
+            task = random.choice(tasks_sample) if tasks_sample else None
+            if not task:
+                continue
+            chosen = random.sample(NOTIF_TEMPLATES, k=random.randint(3, 6))
+            for tmpl in chosen:
                 try:
-                    kwargs = template(emp, mgr, task)
-                    Notification.objects.create(**kwargs)
-                    notif_created += 1
+                    kw = tmpl(emp, mgr, task)
+                    notif_batch.append(Notification(
+                        recipient=emp if kw['kind'] not in ('leave_submitted', 'document_request') else mgr,
+                        actor=mgr if kw['kind'] not in ('leave_submitted', 'document_request') else emp,
+                        **kw,
+                    ))
                 except Exception:
                     pass
 
-        self.stdout.write(self.style.SUCCESS(f'  Done — {notif_created} notifications'))
+        Notification.objects.bulk_create(notif_batch, batch_size=500, ignore_conflicts=True)
+        self.stdout.write(self.style.SUCCESS(f'  {len(notif_batch)} notifications created'))
 
-        self.stdout.write(self.style.SUCCESS('\n=== Seed complete! All credentials: Demo@1234 ==='))
+        # ── Summary ───────────────────────────────────────────────────────────
+        self.stdout.write(self.style.SUCCESS(
+            f'\n{"="*55}\n'
+            f'  Seed complete!\n'
+            f'  Internal users : {len(internal)}\n'
+            f'  Teams          : {len(created_teams)}\n'
+            f'  Clients        : {Client.objects.count()}\n'
+            f'  Opportunities  : {BidOpportunity.objects.count()}\n'
+            f'  Client bids    : {ClientBid.objects.count()}\n'
+            f'  Sprints        : {len(sprint_objs_saved)}\n'
+            f'  Tasks          : {Task.objects.count()}\n'
+            f'  Attendance rows: {Attendance.objects.count()}\n'
+            f'  Leave requests : {LeaveRequest.objects.count()}\n'
+            f'  Notifications  : {Notification.objects.count()}\n'
+            f'  All passwords  : Demo@1234\n'
+            f'{"="*55}'
+        ))
