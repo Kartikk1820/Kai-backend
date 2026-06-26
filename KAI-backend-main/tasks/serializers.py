@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from .models import Task, Comment, Attachment, TaskLink, Team
+from .models import Task, Comment, Attachment, TaskLink, Team, Sprint
 
 User = get_user_model()
 
@@ -34,6 +34,41 @@ class TeamDetailSerializer(TeamSerializer):
 
     class Meta(TeamSerializer.Meta):
         fields = TeamSerializer.Meta.fields + ['members']
+
+
+class SprintSerializer(serializers.ModelSerializer):
+    task_count = serializers.SerializerMethodField()
+    completed_count = serializers.SerializerMethodField()
+    total_points = serializers.SerializerMethodField()
+    team = TeamSerializer(read_only=True)
+    team_id = serializers.PrimaryKeyRelatedField(
+        queryset=Team.objects.all(), source='team', write_only=True, required=False, allow_null=True
+    )
+    tasks = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Sprint
+        fields = ['id', 'name', 'goal', 'team', 'team_id', 'status',
+                  'start_date', 'end_date', 'task_count', 'completed_count',
+                  'total_points', 'tasks', 'created_at']
+
+    def get_task_count(self, obj):
+        return obj.tasks.count()
+
+    def get_completed_count(self, obj):
+        return obj.tasks.filter(status='done').count()
+
+    def get_total_points(self, obj):
+        return sum(t.story_points or 0 for t in obj.tasks.all())
+
+    def get_tasks(self, obj):
+        from django.db.models import Count
+        qs = (obj.tasks
+              .select_related('assignee', 'team', 'linked_bid', 'linked_bid__opportunity')
+              .annotate(comment_count=Count('comments', distinct=True),
+                        attachment_count=Count('attachments', distinct=True))
+              .order_by('position', '-created_at'))
+        return TaskCardSerializer(qs, many=True, context=self.context).data
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -83,20 +118,21 @@ class LinkedBidMiniSerializer(serializers.Serializer):
 
 
 class TaskCardSerializer(serializers.ModelSerializer):
-    """Lightweight card for the board."""
+    """Lightweight card for the board and backlog rows."""
     assignee = UserMiniSerializer(read_only=True)
     is_overdue = serializers.SerializerMethodField()
     comment_count = serializers.IntegerField(read_only=True, default=0)
     attachment_count = serializers.IntegerField(read_only=True, default=0)
     team_name = serializers.CharField(source='team.name', read_only=True, default=None)
     linked_bid_label = serializers.SerializerMethodField()
+    sprint_id = serializers.IntegerField(source='sprint.id', read_only=True, default=None)
 
     class Meta:
         model = Task
         fields = [
-            'id', 'key', 'title', 'status', 'priority', 'assignee', 'labels',
-            'due_date', 'is_overdue', 'position', 'team_name', 'linked_bid_label',
-            'comment_count', 'attachment_count',
+            'id', 'key', 'title', 'status', 'priority', 'task_type', 'story_points',
+            'sprint_id', 'assignee', 'labels', 'due_date', 'is_overdue', 'position',
+            'team_name', 'linked_bid_label', 'comment_count', 'attachment_count',
         ]
 
     def get_is_overdue(self, obj):
@@ -126,15 +162,16 @@ class TaskDetailSerializer(serializers.ModelSerializer):
     team_id = serializers.PrimaryKeyRelatedField(
         queryset=Team.objects.all(), source='team', write_only=True, required=False, allow_null=True)
     linked_bid_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    sprint_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Task
         fields = [
-            'id', 'key', 'title', 'description', 'status', 'priority',
+            'id', 'key', 'title', 'description', 'status', 'priority', 'task_type', 'story_points',
             'assignee', 'reporter', 'created_by', 'team', 'linked_bid',
             'labels', 'start_date', 'due_date', 'is_overdue', 'position',
             'attachments', 'links', 'created_at', 'updated_at',
-            'assignee_id', 'reporter_id', 'team_id', 'linked_bid_id',
+            'assignee_id', 'reporter_id', 'team_id', 'linked_bid_id', 'sprint_id',
         ]
         read_only_fields = ['id', 'key', 'status', 'created_by', 'position', 'created_at', 'updated_at']
 
@@ -161,13 +198,16 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(), source='assignee', required=False, allow_null=True)
     team_id = serializers.PrimaryKeyRelatedField(
         queryset=Team.objects.all(), source='team', required=False, allow_null=True)
+    sprint_id = serializers.PrimaryKeyRelatedField(
+        queryset=Sprint.objects.all(), source='sprint', required=False, allow_null=True)
     linked_bid_id = serializers.IntegerField(required=False, allow_null=True)
     status = serializers.ChoiceField(choices=Task.STATUS, required=False)
 
     class Meta:
         model = Task
         fields = [
-            'title', 'description', 'priority', 'status', 'assignee_id', 'team_id',
+            'title', 'description', 'priority', 'task_type', 'story_points',
+            'status', 'assignee_id', 'team_id', 'sprint_id',
             'linked_bid_id', 'labels', 'start_date', 'due_date',
         ]
 

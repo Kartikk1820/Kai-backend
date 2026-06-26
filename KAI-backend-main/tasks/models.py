@@ -25,6 +25,30 @@ class Team(models.Model):
         return self.name
 
 
+class Sprint(models.Model):
+    STATUS = [
+        ('planning', 'Planning'),
+        ('active', 'Active'),
+        ('completed', 'Completed'),
+    ]
+    name = models.CharField(max_length=100)
+    goal = models.TextField(blank=True)
+    team = models.ForeignKey(
+        Team, null=True, blank=True, on_delete=models.SET_NULL, related_name='sprints'
+    )
+    status = models.CharField(max_length=20, choices=STATUS, default='planning', db_index=True)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
 class TaskKeyCounter(models.Model):
     """Single-row counter that produces sequential task keys (KAI-1, KAI-2, ...)."""
     prefix = models.CharField(max_length=10, primary_key=True)
@@ -54,6 +78,12 @@ class Task(models.Model):
         ('low', 'Low'),
         ('lowest', 'Lowest'),
     ]
+    TYPE_CHOICES = [
+        ('story', 'Story'),
+        ('task', 'Task'),
+        ('bug', 'Bug'),
+        ('epic', 'Epic'),
+    ]
 
     key = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
     title = models.CharField(max_length=255)
@@ -78,6 +108,11 @@ class Task(models.Model):
         related_name='tasks',
     )
 
+    task_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default='task')
+    story_points = models.PositiveSmallIntegerField(null=True, blank=True)
+    sprint = models.ForeignKey(
+        Sprint, null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks'
+    )
     labels = models.JSONField(default=list, blank=True)
     start_date = models.DateField(null=True, blank=True)
     due_date = models.DateTimeField(null=True, blank=True, db_index=True)

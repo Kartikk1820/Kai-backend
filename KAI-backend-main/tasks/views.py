@@ -13,10 +13,11 @@ from django.conf import settings
 from core.services import write_audit
 from core.permissions import HasPermissionKey
 from core.permissions_catalog import TEAM_MANAGE
-from .models import Task, Comment, Attachment, Team, TaskLink
+from .models import Task, Comment, Attachment, Team, TaskLink, Sprint
 from .serializers import (
     TaskCardSerializer, TaskDetailSerializer, TaskCreateSerializer,
     CommentSerializer, AttachmentSerializer, TeamSerializer, TeamDetailSerializer,
+    SprintSerializer,
 )
 from .services import TaskService
 
@@ -33,7 +34,7 @@ class CommentPagination(PageNumberPagination):
 
 def _base_queryset():
     return (Task.objects
-            .select_related('assignee', 'team', 'linked_bid', 'linked_bid__opportunity')
+            .select_related('assignee', 'team', 'sprint', 'linked_bid', 'linked_bid__opportunity')
             .annotate(comment_count=Count('comments', distinct=True),
                       attachment_count=Count('attachments', distinct=True)))
 
@@ -90,6 +91,14 @@ class TaskBoardView(views.APIView):
             qs = qs.filter(due_date__lte=p['due_to'])
         if p.get('overdue') == 'true':
             qs = qs.filter(due_date__lt=timezone.now()).exclude(status='done')
+        if p.get('sprint_id'):
+            sid = p['sprint_id']
+            if sid == 'active':
+                qs = qs.filter(sprint__status='active')
+            elif sid == 'backlog':
+                qs = qs.filter(sprint__isnull=True)
+            else:
+                qs = qs.filter(sprint_id=sid)
 
         qs = qs.order_by('position', '-created_at')
         board = {}
@@ -141,13 +150,20 @@ class TaskViewSet(viewsets.ModelViewSet):
         ser = TaskDetailSerializer(instance, data=request.data, partial=partial,
                                    context={'request': request})
         ser.is_valid(raise_exception=True)
-        # status is read-only here; handle linked_bid_id explicitly
+        # status is read-only here; handle linked_bid_id and sprint_id explicitly
         linked_bid_id = ser.validated_data.pop('linked_bid_id', 'unset')
+        sprint_id = ser.validated_data.pop('sprint_id', 'unset')
         prev_assignee = instance.assignee_id
         ser.save()
+        update_fields = []
         if linked_bid_id != 'unset':
             instance.linked_bid_id = linked_bid_id
-            instance.save(update_fields=['linked_bid'])
+            update_fields.append('linked_bid')
+        if sprint_id != 'unset':
+            instance.sprint_id = sprint_id
+            update_fields.append('sprint')
+        if update_fields:
+            instance.save(update_fields=update_fields)
         # notify on (re)assignment
         if 'assignee' in ser.validated_data and instance.assignee_id and instance.assignee_id != prev_assignee:
             from notifications.services import notify
@@ -269,6 +285,61 @@ class TaskViewSet(viewsets.ModelViewSet):
         TaskLink.objects.filter(source_task=link.target_task, target_task=task).delete()
         link.delete()
         return Response(status=204)
+
+
+class BacklogView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = _base_queryset().filter(sprint__isnull=True)
+        p = request.query_params
+        if p.get('search'):
+            s = p['search']
+            qs = qs.filter(Q(title__icontains=s) | Q(key__icontains=s))
+        if p.get('assignee_id'):
+            qs = qs.filter(assignee_id=p['assignee_id'])
+        qs = qs.order_by('position', '-created_at')
+        return Response(TaskCardSerializer(qs, many=True, context={'request': request}).data)
+
+
+class SprintViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = SprintSerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        return Sprint.objects.select_related('team').prefetch_related('tasks')
+
+    @action(detail=True, methods=['post'])
+    def start(self, request, pk=None):
+        sprint = self.get_object()
+        if sprint.status != 'planning':
+            return Response({'detail': 'Only planning sprints can be started.'}, status=400)
+        # Enforce one active sprint at a time
+        if Sprint.objects.filter(status='active').exclude(pk=sprint.pk).exists():
+            return Response({'detail': 'Another sprint is already active. Complete it first.'}, status=400)
+        sprint.status = 'active'
+        if not sprint.start_date:
+            sprint.start_date = timezone.now().date()
+        sprint.save()
+        write_audit(actor=request.user, model_name='Sprint', object_id=sprint.id,
+                    action='started', new_state='active', request=request)
+        return Response(SprintSerializer(sprint, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        sprint = self.get_object()
+        if sprint.status != 'active':
+            return Response({'detail': 'Only active sprints can be completed.'}, status=400)
+        # Move incomplete tasks to backlog
+        sprint.tasks.exclude(status='done').update(sprint=None)
+        sprint.status = 'completed'
+        if not sprint.end_date:
+            sprint.end_date = timezone.now().date()
+        sprint.save()
+        write_audit(actor=request.user, model_name='Sprint', object_id=sprint.id,
+                    action='completed', new_state='completed', request=request)
+        return Response(SprintSerializer(sprint, context={'request': request}).data)
 
 
 class TeamViewSet(viewsets.ModelViewSet):
