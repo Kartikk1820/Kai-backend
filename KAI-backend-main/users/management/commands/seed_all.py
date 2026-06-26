@@ -340,7 +340,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f'  Done — tasks seeded'))
 
         # ── 6. Attendance ─────────────────────────────────────────────────────
-        self.stdout.write('\n[6/6] Seeding attendance data (last 30 days)...')
+        self.stdout.write('\n[6/7] Seeding attendance data (last 30 days)...')
         att_employees = [u for u in created_users.values() if u.role in ('Employee', 'Manager')]
 
         # Weekday weights: mostly present, some leaves/half-days
@@ -405,5 +405,89 @@ class Command(BaseCommand):
             leave_created += 1
 
         self.stdout.write(self.style.SUCCESS(f'  Done — {leave_created} leave requests'))
+
+        # ── 7. Notifications ──────────────────────────────────────────────────
+        self.stdout.write('\n[7/7] Seeding notifications...')
+        from notifications.models import Notification
+
+        notification_templates = [
+            # task_assigned — sent to assignee, actor is a manager
+            lambda emp, mgr, task: dict(
+                recipient=emp, actor=mgr, kind='task_assigned',
+                title=f'You were assigned {task.key}',
+                body=task.title,
+                link=f'/tasks?task={task.id}',
+                is_read=random.random() > 0.4,
+            ),
+            # leave_submitted — sent to manager
+            lambda emp, mgr, _: dict(
+                recipient=mgr, actor=emp, kind='leave_submitted',
+                title=f'{emp.first_name} {emp.last_name} submitted a leave request',
+                body='Casual leave — 2 days. Please review.',
+                link='/hrms/leaves',
+                is_read=random.random() > 0.5,
+            ),
+            # leave_approved — sent to employee
+            lambda emp, mgr, _: dict(
+                recipient=emp, actor=mgr, kind='leave_approved',
+                title='Your leave request was approved',
+                body=f'Approved by {mgr.first_name} {mgr.last_name}.',
+                link='/hrms/leaves',
+                is_read=random.random() > 0.3,
+            ),
+            # leave_rejected — sent to employee
+            lambda emp, mgr, _: dict(
+                recipient=emp, actor=mgr, kind='leave_rejected',
+                title='Your leave request was declined',
+                body='Reason: Insufficient staffing during the requested period.',
+                link='/hrms/leaves',
+                is_read=random.random() > 0.6,
+            ),
+            # incentive_granted — sent to employee
+            lambda emp, mgr, _: dict(
+                recipient=emp, actor=mgr, kind='incentive_granted',
+                title='Performance incentive granted',
+                body=f'${random.randint(2, 10) * 500} incentive approved for this quarter.',
+                link='/hrms/payroll',
+                is_read=random.random() > 0.2,
+            ),
+            # document_received — sent to employee
+            lambda emp, mgr, _: dict(
+                recipient=emp, actor=mgr, kind='document_received',
+                title='New document shared with you',
+                body='Your updated offer letter is ready for review.',
+                link='/documents',
+                is_read=random.random() > 0.5,
+            ),
+            # document_request — sent to manager
+            lambda emp, mgr, _: dict(
+                recipient=mgr, actor=emp, kind='document_request',
+                title=f'{emp.first_name} requested a document',
+                body='Experience letter requested.',
+                link='/documents',
+                is_read=random.random() > 0.4,
+            ),
+        ]
+
+        tasks_list = list(Task.objects.all()[:20])
+        notif_created = 0
+
+        for emp in att_employees:
+            if not mgr_list:
+                continue
+            mgr = emp.manager or random.choice(mgr_list)
+            task = random.choice(tasks_list) if tasks_list else None
+
+            # Pick 2-5 random notification types per employee
+            chosen = random.sample(notification_templates, k=min(random.randint(2, 5), len(notification_templates)))
+            for template in chosen:
+                try:
+                    kwargs = template(emp, mgr, task)
+                    Notification.objects.create(**kwargs)
+                    notif_created += 1
+                except Exception:
+                    pass
+
+        self.stdout.write(self.style.SUCCESS(f'  Done — {notif_created} notifications'))
 
         self.stdout.write(self.style.SUCCESS('\n=== Seed complete! All credentials: Demo@1234 ==='))
