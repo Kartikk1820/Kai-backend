@@ -6,6 +6,22 @@ class Client(models.Model):
     name = models.CharField(max_length=255)
     shortcode = models.CharField(max_length=20, unique=True)
 
+    # Company information
+    owner_name = models.CharField(max_length=255, blank=True)
+    incorporation_date = models.DateField(null=True, blank=True)
+    state_of_incorporation = models.CharField(max_length=150, blank=True)
+    corporation_type = models.CharField(max_length=100, blank=True)
+    fein = models.CharField(max_length=50, blank=True)
+    duns = models.CharField(max_length=50, blank=True)
+    cage_code = models.CharField(max_length=20, blank=True)
+    everify_no = models.CharField(max_length=50, blank=True)
+    website = models.CharField(max_length=255, blank=True)
+    address = models.TextField(blank=True)
+    phone = models.CharField(max_length=50, blank=True)
+    email = models.CharField(max_length=255, blank=True)
+    fax = models.CharField(max_length=50, blank=True)
+    notes = models.TextField(blank=True)
+
     def __str__(self):
         return f"{self.name} ({self.shortcode})"
 

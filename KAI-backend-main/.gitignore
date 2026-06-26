@@ -52,3 +52,6 @@ skills-lock.json
 master_sheet.xlsx
 analyze_excel.py
 celerybeat-schedule*
+Admin.txt
+bid_tracker.xlsx
+seed_clients.py

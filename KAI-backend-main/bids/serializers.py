@@ -5,10 +5,17 @@ from .models import Client, BidOpportunity, ClientBid, PortalCredential
 User = get_user_model()
 
 
+CLIENT_INFO_FIELDS = [
+    'owner_name', 'incorporation_date', 'state_of_incorporation', 'corporation_type',
+    'fein', 'duns', 'cage_code', 'everify_no', 'website',
+    'address', 'phone', 'email', 'fax', 'notes',
+]
+
+
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
-        fields = ['id', 'name', 'shortcode']
+        fields = ['id', 'name', 'shortcode'] + CLIENT_INFO_FIELDS
 
 
 class UserBidSerializer(serializers.ModelSerializer):
@@ -75,7 +82,7 @@ class ClientDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Client
-        fields = ['id', 'name', 'shortcode', 'bid_count', 'portal_credentials']
+        fields = ['id', 'name', 'shortcode', 'bid_count', 'portal_credentials'] + CLIENT_INFO_FIELDS
 
     def get_bid_count(self, obj):
         return obj.clientbid_set.count()
