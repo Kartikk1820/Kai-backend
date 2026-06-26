@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import (
     Attendance, LeaveBalance, LeaveRequest, PayrollRecord, AdvanceSalaryRequest,
-    Compensation, Incentive, PayrollRun,
+    Compensation, Incentive, PayrollRun, BonusConfig,
 )
 
 User = get_user_model()
@@ -122,6 +122,12 @@ class CompensationSerializer(serializers.ModelSerializer):
 
     def get_employee_name(self, obj):
         return _emp_name(obj)
+
+
+class BonusConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BonusConfig
+        fields = ['writer_bonus_pct', 'presales_bonus_pct', 'flat_bonus_per_bid']
 
 
 class EmployeeDetailSerializer(serializers.ModelSerializer):

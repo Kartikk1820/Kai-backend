@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.db import models
 from django.conf import settings
 from datetime import datetime
@@ -212,6 +213,28 @@ class Attendance(models.Model):
 
     def __str__(self):
         return f"{self.employee} - {self.date} ({self.status})"
+
+
+class BonusConfig(models.Model):
+    """Singleton — bonus percentages for bid-based incentives."""
+    writer_bonus_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('2.00'),
+                                            help_text="% of contract_value awarded to the bid writer")
+    presales_bonus_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('1.00'),
+                                              help_text="% of contract_value awarded to the presales person")
+    flat_bonus_per_bid = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('500.00'),
+                                              help_text="Flat bonus per submitted bid when contract_value is absent")
+
+    class Meta:
+        verbose_name = "Bonus Configuration"
+        verbose_name_plural = "Bonus Configuration"
+
+    @classmethod
+    def get(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return f"BonusConfig: writer={self.writer_bonus_pct}%, presales={self.presales_bonus_pct}%, flat={self.flat_bonus_per_bid}"
 
 
 class AttendanceSession(models.Model):

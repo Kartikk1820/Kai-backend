@@ -1,3 +1,4 @@
+from decimal import Decimal
 from django.db import models
 from django.conf import settings
 
@@ -80,6 +81,8 @@ class ClientBid(models.Model):
     internal_deadline = models.DateTimeField(null=True, blank=True)
     submission_method = models.CharField(max_length=30, choices=SUBMISSION_METHOD_CHOICES, blank=True)
     date_of_review = models.DateTimeField(null=True, blank=True)
+    contract_value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True,
+                                         help_text="Estimated or awarded contract value (USD)")
     comments = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
