@@ -63,6 +63,7 @@ class LeaveRequest(models.Model):
 class Compensation(models.Model):
     employee = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='compensation')
     monthly_base_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    monthly_incentive = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     def __str__(self):
         return f"{self.employee}'s Compensation"
@@ -148,13 +149,14 @@ class Incentive(models.Model):
 
 
 class AdvanceSalaryRequest(models.Model):
-    STATUS_CHOICES = [('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected')]
+    STATUS_CHOICES = [('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected'), ('recovered', 'Recovered')]
 
     employee = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='advance_requests')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     reason = models.TextField()
     proposed_recovery_months = models.IntegerField()
     monthly_recovery_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    months_recovered = models.IntegerField(default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     applied_on = models.DateTimeField(auto_now_add=True)
     reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
@@ -213,28 +215,6 @@ class Attendance(models.Model):
 
     def __str__(self):
         return f"{self.employee} - {self.date} ({self.status})"
-
-
-class BonusConfig(models.Model):
-    """Singleton — bonus percentages for bid-based incentives."""
-    writer_bonus_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('2.00'),
-                                            help_text="% of contract_value awarded to the bid writer")
-    presales_bonus_pct = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('1.00'),
-                                              help_text="% of contract_value awarded to the presales person")
-    flat_bonus_per_bid = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('500.00'),
-                                              help_text="Flat bonus per submitted bid when contract_value is absent")
-
-    class Meta:
-        verbose_name = "Bonus Configuration"
-        verbose_name_plural = "Bonus Configuration"
-
-    @classmethod
-    def get(cls):
-        obj, _ = cls.objects.get_or_create(pk=1)
-        return obj
-
-    def __str__(self):
-        return f"BonusConfig: writer={self.writer_bonus_pct}%, presales={self.presales_bonus_pct}%, flat={self.flat_bonus_per_bid}"
 
 
 class AttendanceSession(models.Model):

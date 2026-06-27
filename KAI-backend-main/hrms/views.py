@@ -21,7 +21,7 @@ from .models import (
 from .serializers import (
     AttendanceSerializer, LeaveBalanceSerializer, LeaveRequestSerializer,
     PayrollRecordSerializer, AdvanceSalaryRequestSerializer, CompensationSerializer,
-    EmployeeDetailSerializer, IncentiveSerializer, PayrollRunSerializer, BonusConfigSerializer,
+    EmployeeDetailSerializer, IncentiveSerializer, PayrollRunSerializer,
 )
 from .services import LeaveService, PayrollService, IncentiveService, can_approve_for
 
@@ -346,38 +346,6 @@ class PayrollRunView(APIView):
         return Response(PayrollRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
 
 
-class BidBonusRunView(APIView):
-    permission_classes = [HasPermissionKey.of(HR_RUN_PAYROLL)]
-
-    @extend_schema(summary="Manually trigger bid-based bonus calculation")
-    def post(self, request):
-        month = request.data.get('month')
-        year = request.data.get('year')
-        if not month or not year:
-            return Response({'error': 'month and year are required'}, status=400)
-        result = PayrollService.run_bid_bonuses(
-            int(month), int(year), user=request.user, request=request)
-        return Response(result, status=status.HTTP_202_ACCEPTED)
-
-
-class BonusConfigView(APIView):
-    permission_classes = [HasPermissionKey.of(HR_MANAGE_COMPENSATION)]
-
-    @extend_schema(summary="Get bonus config")
-    def get(self, request):
-        from .models import BonusConfig
-        return Response(BonusConfigSerializer(BonusConfig.get()).data)
-
-    @extend_schema(summary="Update bonus config")
-    def patch(self, request):
-        from .models import BonusConfig
-        config = BonusConfig.get()
-        ser = BonusConfigSerializer(config, data=request.data, partial=True)
-        ser.is_valid(raise_exception=True)
-        ser.save()
-        return Response(ser.data)
-
-
 # ============================ Incentives ============================
 
 class IncentiveListCreateView(generics.ListCreateAPIView):
@@ -395,7 +363,12 @@ class IncentiveListCreateView(generics.ListCreateAPIView):
         return qs
 
     def perform_create(self, serializer):
-        inc = serializer.save(granted_by=self.request.user, status='scheduled')
+        from django.db import IntegrityError
+        try:
+            inc = serializer.save(granted_by=self.request.user, status='scheduled')
+        except IntegrityError:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({'detail': 'An incentive already exists for this employee in this month/year.'})
         write_audit(actor=self.request.user, model_name='Incentive', object_id=inc.id,
                     action='granted', new_state='scheduled', request=self.request)
         notify(user=inc.employee, kind='incentive_granted',
@@ -426,6 +399,29 @@ class IncentiveSendNowView(APIView):
     def post(self, request, pk):
         inc = IncentiveService.send(pk, user=request.user, request=request)
         return Response(IncentiveSerializer(inc).data)
+
+
+class IncentiveSendAllView(APIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_INCENTIVE)]
+
+    @extend_schema(summary="Send all scheduled incentives for a month/year")
+    def post(self, request):
+        month = request.data.get('month')
+        year = request.data.get('year')
+        if not month or not year:
+            return Response({'error': 'month and year are required'}, status=400)
+        qs = Incentive.objects.filter(status='scheduled', month=int(month), year=int(year))
+        sent, errors = 0, []
+        for inc in qs:
+            try:
+                IncentiveService.send(inc.id, user=request.user, request=request)
+                sent += 1
+            except Exception as e:
+                errors.append({'id': inc.id, 'error': str(e)})
+        write_audit(actor=request.user, model_name='Incentive', object_id=0,
+                    action='send_all', new_state='sent', request=request,
+                    context={'month': month, 'year': year, 'sent': sent, 'errors': len(errors)})
+        return Response({'sent': sent, 'errors': errors})
 
 
 # ============================ Directory ============================
@@ -471,7 +467,10 @@ class AdvanceSalaryCreateView(generics.CreateAPIView):
     serializer_class = AdvanceSalaryRequestSerializer
 
     def perform_create(self, serializer):
-        serializer.save(employee=self.request.user, status='pending')
+        amount = serializer.validated_data['amount']
+        months = serializer.validated_data['proposed_recovery_months']
+        monthly = round(amount / months, 2) if months else amount
+        serializer.save(employee=self.request.user, status='pending', monthly_recovery_amount=monthly)
 
 
 class AdvanceSalaryStatusUpdateView(APIView):

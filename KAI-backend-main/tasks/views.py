@@ -59,6 +59,21 @@ class TaskFilterOptionsView(views.APIView):
         })
 
 
+class TaskAssigneeCountsView(views.APIView):
+    """Returns active (non-done) task counts per assignee: { "<user_id>": count }"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        counts = (
+            Task.objects
+            .exclude(status='done')
+            .filter(assignee__isnull=False)
+            .values('assignee_id')
+            .annotate(count=Count('id'))
+        )
+        return Response({str(item['assignee_id']): item['count'] for item in counts})
+
+
 class TaskBoardView(views.APIView):
     permission_classes = [IsAuthenticated]
 

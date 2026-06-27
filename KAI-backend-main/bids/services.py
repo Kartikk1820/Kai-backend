@@ -34,10 +34,6 @@ def create_opportunity_with_bids(opportunity_data: dict, clients_data: list, act
         # Only set FK and nullable datetime fields when non-empty to avoid type coercion errors
         if raw.get('client_id'):
             bid_kwargs['client_id'] = raw['client_id']
-        if raw.get('presales_person_id'):
-            bid_kwargs['presales_person_id'] = raw['presales_person_id']
-        if raw.get('writer_id'):
-            bid_kwargs['writer_id'] = raw['writer_id']
         if raw.get('internal_deadline'):
             bid_kwargs['internal_deadline'] = raw['internal_deadline']
         if raw.get('date_of_review'):

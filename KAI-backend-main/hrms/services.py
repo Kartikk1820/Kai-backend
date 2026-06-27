@@ -10,7 +10,7 @@ from core.permissions_catalog import HR_APPROVE_LEAVE
 from notifications.services import notify
 from .models import (
     LeaveRequest, LeaveBalance, Attendance, Compensation, PayrollRecord,
-    PayrollRun, Incentive, AdvanceSalaryRequest, BonusConfig,
+    PayrollRun, Incentive, AdvanceSalaryRequest,
 )
 
 
@@ -102,9 +102,26 @@ class PayrollService:
     @staticmethod
     def _advance_recovery(employee):
         total = Decimal('0')
+        to_close = []
         for adv in AdvanceSalaryRequest.objects.filter(employee=employee, status='approved'):
+            remaining = adv.proposed_recovery_months - adv.months_recovered
+            if remaining <= 0:
+                to_close.append(adv)
+                continue
             total += adv.monthly_recovery_amount
+        # Mark fully-recovered advances (shouldn't normally reach here, but safety net)
+        for adv in to_close:
+            adv.status = 'recovered'
+            adv.save(update_fields=['status'])
         return total
+
+    @staticmethod
+    def _close_recovered_advances(employee):
+        for adv in AdvanceSalaryRequest.objects.filter(employee=employee, status='approved'):
+            adv.months_recovered += 1
+            if adv.months_recovered >= adv.proposed_recovery_months:
+                adv.status = 'recovered'
+            adv.save(update_fields=['months_recovered', 'status'])
 
     @staticmethod
     def _unpaid_deduction(employee, month, year, base_salary):
@@ -134,19 +151,22 @@ class PayrollService:
         for comp in comps:
             emp = comp.employee
             base = comp.monthly_base_salary or Decimal('0')
+            incentive = comp.monthly_incentive or Decimal('0')
             advance = cls._advance_recovery(emp)
             unpaid = cls._unpaid_deduction(emp, month, year, base)
-            net = base - advance - unpaid
+            net = base + incentive - advance - unpaid
             try:
                 rec, created = PayrollRecord.objects.update_or_create(
                     employee=emp, month=month, year=year, slip_type='salary',
                     defaults=dict(
                         run=run, entity=emp.entity or '', base_salary=base,
+                        incentive_amount=incentive,
                         advance_deduction=advance, other_deductions=unpaid,
                         net_amount=net, status='sent', sent_at=timezone.now(),
                     ),
                 )
                 count += 1
+                cls._close_recovered_advances(emp)
                 notify(user=emp, kind='payslip_generated',
                        title='Your salary slip is ready',
                        body=f'Your salary slip for {month}/{year} has been generated. Net pay: ₹{net:,.2f}',
@@ -164,80 +184,6 @@ class PayrollService:
                         action='run', new_state=run.status, request=request,
                         context={'count': count})
         return run
-
-    @classmethod
-    @transaction.atomic
-    def run_bid_bonuses(cls, month, year, user=None, system=False, request=None):
-        """Calculate bid-based bonuses for submitted bids in month/year window."""
-        from bids.models import ClientBid
-        from collections import defaultdict
-        from django.contrib.auth import get_user_model
-
-        User = get_user_model()
-        config = BonusConfig.get()
-
-        # Submitted bids whose status was last updated in the target month/year
-        submitted_bids = list(
-            ClientBid.objects.filter(
-                status='submitted',
-                updated_at__year=year,
-                updated_at__month=month,
-            ).select_related('writer', 'presales_person')
-        )
-
-        paid_roles = {'Admin', 'Manager', 'Employee'}
-        bonuses: dict = defaultdict(Decimal)
-        bid_counts: dict = defaultdict(int)
-
-        for bid in submitted_bids:
-            if bid.contract_value and bid.contract_value > 0:
-                w_amt = (bid.contract_value * config.writer_bonus_pct / 100).quantize(Decimal('0.01'))
-                p_amt = (bid.contract_value * config.presales_bonus_pct / 100).quantize(Decimal('0.01'))
-            else:
-                w_amt = config.flat_bonus_per_bid
-                p_amt = config.flat_bonus_per_bid
-
-            if bid.writer_id and bid.writer and bid.writer.role in paid_roles:
-                bonuses[bid.writer_id] += w_amt
-                bid_counts[bid.writer_id] += 1
-
-            if (bid.presales_person_id and bid.presales_person
-                    and bid.presales_person.role in paid_roles
-                    and bid.presales_person_id != bid.writer_id):
-                bonuses[bid.presales_person_id] += p_amt
-                bid_counts[bid.presales_person_id] += 1
-
-        count = 0
-        for emp_id, amount in bonuses.items():
-            if amount <= 0:
-                continue
-            try:
-                emp = User.objects.get(id=emp_id)
-            except User.DoesNotExist:
-                continue
-            reason = f'Bid bonus for {month}/{year} — {bid_counts[emp_id]} submitted bid(s)'
-            inc, created = Incentive.objects.get_or_create(
-                employee_id=emp_id, month=month, year=year,
-                defaults=dict(amount=amount, reason=reason, granted_by=user, status='scheduled'),
-            )
-            if not created and inc.status == 'scheduled':
-                inc.amount = amount
-                inc.reason = reason
-                inc.granted_by = user
-                inc.save()
-            count += 1
-            notify(user=emp, kind='incentive_granted',
-                   title='Bid bonus scheduled',
-                   body=f'A bid bonus of ₹{amount:,.2f} is scheduled for {month}/{year}.',
-                   link='/hrms?tab=payroll', actor=user)
-
-        actor_system = 'Celery' if system else None
-        write_audit(actor=user, actor_system=actor_system, model_name='BonusRun', object_id=0,
-                    action='bid_bonus_run', new_state='completed', request=request,
-                    context={'month': month, 'year': year, 'count': count,
-                             'bids_processed': len(submitted_bids)})
-        return {'count': count, 'bids_processed': len(submitted_bids)}
-
 
 class IncentiveService:
 

@@ -1,4 +1,3 @@
-from decimal import Decimal
 from django.db import models
 from django.conf import settings
 
@@ -70,14 +69,6 @@ class ClientBid(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='in_progress')
     portal_username = models.CharField(max_length=255, blank=True)
     portal_password = models.CharField(max_length=255, blank=True)
-    presales_person = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='presales_bids'
-    )
-    writer = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='writer_bids'
-    )
     internal_deadline = models.DateTimeField(null=True, blank=True)
     submission_method = models.CharField(max_length=30, choices=SUBMISSION_METHOD_CHOICES, blank=True)
     date_of_review = models.DateTimeField(null=True, blank=True)
@@ -89,6 +80,25 @@ class ClientBid(models.Model):
 
     def __str__(self):
         return f"ClientBid {self.id} — {self.opportunity.title}"
+
+
+class BidAssignment(models.Model):
+    ROLE_CHOICES = [
+        ('writer', 'Writer'),
+        ('presales', 'Pre-sales'),
+        ('reviewer', 'Reviewer'),
+    ]
+    client_bid = models.ForeignKey(ClientBid, on_delete=models.CASCADE, related_name='assignments')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='bid_assignments')
+    role = models.CharField(max_length=30, choices=ROLE_CHOICES, default='writer')
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('client_bid', 'user')
+        ordering = ['role', 'assigned_at']
+
+    def __str__(self):
+        return f"{self.user} on ClientBid {self.client_bid_id} ({self.role})"
 
 
 class PortalCredential(models.Model):

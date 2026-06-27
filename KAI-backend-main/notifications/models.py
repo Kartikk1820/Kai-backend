@@ -14,6 +14,9 @@ class Notification(models.Model):
         ('document_request', 'Document requested'),
         ('document_request_fulfilled', 'Document request fulfilled'),
         ('document_request_declined', 'Document request declined'),
+        ('payslip_generated', 'Payslip generated'),
+        ('advance_approved', 'Advance approved'),
+        ('advance_rejected', 'Advance rejected'),
     ]
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications', db_index=True)

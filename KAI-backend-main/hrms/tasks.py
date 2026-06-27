@@ -23,18 +23,10 @@ def run_monthly_salary():
 
 @shared_task
 def dispatch_scheduled_incentives():
-    """On the 15th: compute bid bonuses, then send all scheduled incentives."""
+    """On the 15th: send all scheduled incentives."""
     from .models import Incentive
-    from .services import IncentiveService, PayrollService
+    from .services import IncentiveService
     today = timezone.localdate()
-
-    # Auto-generate bid bonuses for this month before dispatching
-    try:
-        result = PayrollService.run_bid_bonuses(month=today.month, year=today.year, system=True)
-        logger.info('bid_bonuses_computed', month=today.month, year=today.year,
-                    count=result['count'], bids=result['bids_processed'])
-    except Exception as e:
-        logger.error('bid_bonus_run_failed', error=str(e))
 
     qs = Incentive.objects.filter(status='scheduled', month=today.month, year=today.year)
     sent = 0

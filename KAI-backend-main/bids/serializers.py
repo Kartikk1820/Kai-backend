@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Client, BidOpportunity, ClientBid, PortalCredential
+from .models import Client, BidOpportunity, ClientBid, BidAssignment, PortalCredential
 
 User = get_user_model()
 
@@ -35,22 +35,24 @@ class UserBidSerializer(serializers.ModelSerializer):
         return obj.email[0].upper() if obj.email else "??"
 
 
+class BidAssignmentSerializer(serializers.ModelSerializer):
+    user = UserBidSerializer(read_only=True)
+    user_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='user', write_only=True
+    )
+
+    class Meta:
+        model = BidAssignment
+        fields = ['id', 'user', 'user_id', 'role', 'assigned_at']
+        read_only_fields = ['id', 'assigned_at']
+
+
 class ClientBidSerializer(serializers.ModelSerializer):
     client = ClientSerializer(read_only=True)
-    presales_person = UserBidSerializer(read_only=True)
-    writer = UserBidSerializer(read_only=True)
+    assignments = BidAssignmentSerializer(many=True, read_only=True)
 
-    # Write-only FK fields
     client_id = serializers.PrimaryKeyRelatedField(
         queryset=Client.objects.all(), source='client',
-        write_only=True, required=False, allow_null=True
-    )
-    presales_person_id = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(), source='presales_person',
-        write_only=True, required=False, allow_null=True
-    )
-    writer_id = serializers.PrimaryKeyRelatedField(
-        queryset=User.objects.all(), source='writer',
         write_only=True, required=False, allow_null=True
     )
 
@@ -59,12 +61,11 @@ class ClientBidSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'opportunity_id', 'client', 'kc_brand', 'status',
             'portal_username', 'portal_password',
-            'presales_person', 'writer',
+            'assignments',
             'internal_deadline', 'submission_method',
             'date_of_review', 'comments',
             'created_at', 'updated_at',
-            # write-only
-            'client_id', 'presales_person_id', 'writer_id',
+            'client_id',
         ]
         read_only_fields = ['id', 'opportunity_id', 'created_at', 'updated_at']
 

@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import (
     Attendance, LeaveBalance, LeaveRequest, PayrollRecord, AdvanceSalaryRequest,
-    Compensation, Incentive, PayrollRun, BonusConfig,
+    Compensation, Incentive, PayrollRun,
 )
 
 User = get_user_model()
@@ -86,6 +86,9 @@ class PayrollRunSerializer(serializers.ModelSerializer):
 
 class IncentiveSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
+    employee_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='employee'
+    )
 
     class Meta:
         model = Incentive
@@ -96,6 +99,11 @@ class IncentiveSerializer(serializers.ModelSerializer):
     def get_employee_name(self, obj):
         return _emp_name(obj)
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['employee_id'] = instance.employee_id
+        return ret
+
 
 class AdvanceSalaryRequestSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
@@ -103,10 +111,10 @@ class AdvanceSalaryRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = AdvanceSalaryRequest
         fields = ['id', 'employee_id', 'employee_name', 'amount', 'reason',
-                  'proposed_recovery_months', 'monthly_recovery_amount', 'status',
-                  'applied_on', 'reviewed_by', 'rejection_reason']
-        read_only_fields = ['id', 'employee_id', 'employee_name', 'status', 'applied_on',
-                            'reviewed_by', 'rejection_reason']
+                  'proposed_recovery_months', 'monthly_recovery_amount', 'months_recovered',
+                  'status', 'applied_on', 'reviewed_by', 'rejection_reason']
+        read_only_fields = ['id', 'employee_id', 'employee_name', 'monthly_recovery_amount',
+                            'months_recovered', 'status', 'applied_on', 'reviewed_by', 'rejection_reason']
 
     def get_employee_name(self, obj):
         return _emp_name(obj)
@@ -118,16 +126,10 @@ class CompensationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Compensation
-        fields = ['id', 'employee_id', 'employee_name', 'monthly_base_salary']
+        fields = ['id', 'employee_id', 'employee_name', 'monthly_base_salary', 'monthly_incentive']
 
     def get_employee_name(self, obj):
         return _emp_name(obj)
-
-
-class BonusConfigSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = BonusConfig
-        fields = ['writer_bonus_pct', 'presales_bonus_pct', 'flat_bonus_per_bid']
 
 
 class EmployeeDetailSerializer(serializers.ModelSerializer):

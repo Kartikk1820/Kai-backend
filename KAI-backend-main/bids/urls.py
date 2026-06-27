@@ -11,6 +11,8 @@ from .views import (
     ClientRetrieveUpdateView,
     PortalCredentialListCreateView,
     PortalCredentialDetailView,
+    BidAssignmentListCreateView,
+    BidAssignmentDetailView,
 )
 
 urlpatterns = [
@@ -22,6 +24,9 @@ urlpatterns = [
     # Client bids
     path('client-bids/', ClientBidListView.as_view(), name='client-bid-list'),
     path('client-bids/<int:pk>/', ClientBidDetailView.as_view(), name='client-bid-detail'),
+    # Bid assignments (M2M)
+    path('client-bids/<int:bid_pk>/assignments/', BidAssignmentListCreateView.as_view(), name='bid-assignment-list'),
+    path('assignments/<int:pk>/', BidAssignmentDetailView.as_view(), name='bid-assignment-detail'),
     # Sync
     path('sync-status/', BidSyncStatusView.as_view(), name='bid-sync-status'),
     path('sync-now/', BidSyncNowView.as_view(), name='bid-sync-now'),

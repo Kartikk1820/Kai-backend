@@ -4,8 +4,7 @@ from .views import (
     LeaveBalanceView, LeaveRequestListView, LeaveRequestCreateView, LeaveRequestStatusUpdateView,
     CompensationListView, CompensationDetailView,
     PayrollRecordListView, PayrollSlipDownloadView, PayrollRunView,
-    BidBonusRunView, BonusConfigView,
-    IncentiveListCreateView, IncentiveDetailView, IncentiveSendNowView,
+    IncentiveListCreateView, IncentiveDetailView, IncentiveSendNowView, IncentiveSendAllView,
     AdvanceSalaryListView, AdvanceSalaryCreateView, AdvanceSalaryStatusUpdateView,
     EmployeeListView, EmployeeDetailView,
 )
@@ -30,13 +29,12 @@ urlpatterns = [
     path('payroll/slips/', PayrollRecordListView.as_view()),
     path('payroll/slips/<int:pk>/download/', PayrollSlipDownloadView.as_view()),
     path('payroll/run/', PayrollRunView.as_view()),
-    path('payroll/run-bid-bonuses/', BidBonusRunView.as_view()),
-    path('payroll/bonus-config/', BonusConfigView.as_view()),
 
     # Incentives
     path('incentives/', IncentiveListCreateView.as_view()),
     path('incentives/<int:pk>/', IncentiveDetailView.as_view()),
     path('incentives/<int:pk>/send/', IncentiveSendNowView.as_view()),
+    path('incentives/send-all/', IncentiveSendAllView.as_view()),
 
     # Advances
     path('payroll/advances/', AdvanceSalaryListView.as_view()),

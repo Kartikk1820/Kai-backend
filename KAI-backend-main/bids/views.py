@@ -12,10 +12,10 @@ import hashlib
 import json
 import structlog
 
-from .models import Client, BidOpportunity, ClientBid, PortalCredential
+from .models import Client, BidOpportunity, ClientBid, BidAssignment, PortalCredential
 from .serializers import (
     ClientSerializer, ClientDetailSerializer, BidOpportunitySerializer,
-    ClientBidSerializer, UserBidSerializer, PortalCredentialSerializer
+    ClientBidSerializer, BidAssignmentSerializer, UserBidSerializer, PortalCredentialSerializer
 )
 
 logger = structlog.get_logger(__name__)
@@ -84,7 +84,7 @@ def _apply_bid_filters(qs_opportunities, params):
 
     writer_id = params.get('writer_id')
     if writer_id:
-        qs_opportunities = qs_opportunities.filter(client_bids__writer_id=writer_id).distinct()
+        qs_opportunities = qs_opportunities.filter(client_bids__assignments__user_id=writer_id).distinct()
 
     client_id = params.get('client_id')
     if client_id:
@@ -139,7 +139,9 @@ class BidOpportunityListCreateView(views.APIView):
 
     def get(self, request):
         qs = BidOpportunity.objects.prefetch_related(
-            Prefetch('client_bids', queryset=ClientBid.objects.select_related('client', 'presales_person', 'writer'))
+            Prefetch('client_bids', queryset=ClientBid.objects.select_related('client').prefetch_related(
+                Prefetch('assignments', queryset=BidAssignment.objects.select_related('user'))
+            ))
         )
         qs = _apply_bid_filters(qs, request.query_params)
         return Response(BidOpportunitySerializer(qs, many=True).data)
@@ -168,18 +170,18 @@ class ClientBidListView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Apply opportunity-level filters (search, state, category, dates, etc.)
         opp_qs = _apply_bid_filters(BidOpportunity.objects.all(), request.query_params)
         qs = ClientBid.objects.filter(opportunity__in=opp_qs).select_related(
-            'client', 'presales_person', 'writer', 'opportunity'
+            'client', 'opportunity'
+        ).prefetch_related(
+            Prefetch('assignments', queryset=BidAssignment.objects.select_related('user'))
         )
-        # Apply ClientBid-direct filters
         statuses = request.query_params.getlist('status')
         if statuses:
             qs = qs.filter(status__in=statuses)
         writer_id = request.query_params.get('writer_id')
         if writer_id:
-            qs = qs.filter(writer_id=writer_id)
+            qs = qs.filter(assignments__user_id=writer_id)
         client_id = request.query_params.get('client_id')
         if client_id:
             qs = qs.filter(client_id=client_id)
@@ -219,7 +221,9 @@ class ClientBidListView(views.APIView):
 class BidOpportunityDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
     queryset = BidOpportunity.objects.prefetch_related(
-        Prefetch('client_bids', queryset=ClientBid.objects.select_related('client', 'presales_person', 'writer'))
+        Prefetch('client_bids', queryset=ClientBid.objects.select_related('client').prefetch_related(
+            Prefetch('assignments', queryset=BidAssignment.objects.select_related('user'))
+        ))
     )
     serializer_class = BidOpportunitySerializer
 
@@ -228,7 +232,7 @@ class BidOpportunityDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class ClientBidDetailView(generics.UpdateAPIView):
     permission_classes = [IsAuthenticated]
-    queryset = ClientBid.objects.select_related('client', 'presales_person', 'writer')
+    queryset = ClientBid.objects.select_related('client').prefetch_related('assignments__user')
     serializer_class = ClientBidSerializer
     http_method_names = ['patch']
 
@@ -347,30 +351,39 @@ class BidSyncNowView(views.APIView):
                         presales_user = User.objects.filter(first_name__icontains=pre_sales_name).first()
                         if not presales_user:
                             notes_to_add.append(f"presale:{pre_sales_name}")
-    
+
                     writer_user = None
                     if writer_name and writer_name != 'nan':
                         writer_user = User.objects.filter(first_name__icontains=writer_name).first()
                         if not writer_user:
                             notes_to_add.append(f"writer:{writer_name}")
-                            
+
                     if notes_to_add:
                         if comments:
                             comments += "\n" + "\n".join(notes_to_add)
                         else:
                             comments = "\n".join(notes_to_add)
-    
-                    ClientBid.objects.update_or_create(
+
+                    client_bid, _ = ClientBid.objects.update_or_create(
                         opportunity=opportunity,
                         kc_brand=subm if subm != 'nan' else '',
                         defaults={
                             'status': status_clean,
                             'portal_password': password if password != 'nan' else '',
-                            'presales_person': presales_user,
-                            'writer': writer_user,
                             'comments': comments,
                         }
                     )
+
+                    if writer_user:
+                        BidAssignment.objects.update_or_create(
+                            client_bid=client_bid, user=writer_user,
+                            defaults={'role': 'writer'}
+                        )
+                    if presales_user:
+                        BidAssignment.objects.update_or_create(
+                            client_bid=client_bid, user=presales_user,
+                            defaults={'role': 'presales'}
+                        )
                     imported_count += 1
                 
             return Response({"message": f"Successfully imported {imported_count} records."}, status=status.HTTP_200_OK)
@@ -452,3 +465,38 @@ class PortalCredentialDetailView(views.APIView):
         cred = self._get(client_pk, pk)
         cred.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ─── 11. Bid Assignments ───────────────────────────────────────────────────────
+
+class BidAssignmentListCreateView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, bid_pk):
+        from django.shortcuts import get_object_or_404
+        bid = get_object_or_404(ClientBid, pk=bid_pk)
+        serializer = BidAssignmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            assignment = serializer.save(client_bid=bid)
+        except Exception:
+            return Response({'error': 'User already assigned to this bid.'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(BidAssignmentSerializer(assignment).data, status=status.HTTP_201_CREATED)
+
+
+class BidAssignmentDetailView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        from django.shortcuts import get_object_or_404
+        assignment = get_object_or_404(BidAssignment, pk=pk)
+        assignment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def patch(self, request, pk):
+        from django.shortcuts import get_object_or_404
+        assignment = get_object_or_404(BidAssignment, pk=pk)
+        serializer = BidAssignmentSerializer(assignment, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(BidAssignmentSerializer(assignment).data)
