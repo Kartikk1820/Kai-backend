@@ -4,6 +4,7 @@ from .views import (
     CustomTokenBlacklistView, ChangePasswordView,
     AdminUserListCreateView, AdminUserDetailView, AdminResetPasswordView,
     RoleListCreateView, RoleDetailView, PermissionCatalogView,
+    PositionListCreateView, PositionDetailView,
     UserListView,
 )
 
@@ -22,4 +23,6 @@ urlpatterns = [
     path('admin/roles/', RoleListCreateView.as_view(), name='role-list'),
     path('admin/roles/<int:pk>/', RoleDetailView.as_view(), name='role-detail'),
     path('admin/permissions/', PermissionCatalogView.as_view(), name='permission-catalog'),
+    path('admin/positions/', PositionListCreateView.as_view(), name='position-list'),
+    path('admin/positions/<int:pk>/', PositionDetailView.as_view(), name='position-detail'),
 ]

@@ -18,8 +18,9 @@ from core.models import Role
 from .serializers import (
     CustomTokenObtainPairSerializer, MeSerializer, ChangePasswordSerializer,
     AdminUserSerializer, RoleSerializer, CustomTokenRefreshSerializer,
-    UserMiniSerializer, ProfileUpdateSerializer,
+    UserMiniSerializer, ProfileUpdateSerializer, PositionSerializer,
 )
+from .models import Position
 
 User = get_user_model()
 
@@ -176,3 +177,16 @@ class PermissionCatalogView(APIView):
         data = {group: [{'key': k, 'label': lbl} for (k, lbl) in items]
                 for group, items in CATALOG.items()}
         return Response(data)
+
+
+class PositionListCreateView(ListCreateAPIView):
+    permission_classes = [HasPermissionKey.of(RBAC_MANAGE)]
+    serializer_class = PositionSerializer
+    queryset = Position.objects.all()
+
+
+class PositionDetailView(RetrieveUpdateDestroyAPIView):
+    permission_classes = [HasPermissionKey.of(RBAC_MANAGE)]
+    serializer_class = PositionSerializer
+    queryset = Position.objects.all()
+    http_method_names = ['get', 'patch', 'delete']

@@ -4,8 +4,15 @@ from django.utils.crypto import get_random_string
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from core.models import Role, UserRole
+from .models import Position
 
 User = get_user_model()
+
+
+class PositionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Position
+        fields = ['id', 'name', 'description', 'role_ids']
 
 
 class RoleSerializer(serializers.ModelSerializer):

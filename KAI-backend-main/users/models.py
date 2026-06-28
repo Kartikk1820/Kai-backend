@@ -40,20 +40,10 @@ class User(AbstractUser):
         ('Employee', 'Employee'),
         ('Client', 'Client'),
     ]
-    SUB_POSITION_CHOICES = [
-        ('Proposal Writer', 'Proposal Writer'),
-        ('Senior VP', 'Senior VP'),
-        ('Team Lead', 'Team Lead'),
-        ('Associate', 'Associate'),
-        ('Administrative Assistant', 'Administrative Assistant'),
-        ('Program Coordinator', 'Program Coordinator'),
-        ('Data Collection Staff', 'Data Collection Staff'),
-    ]
-
     is_active = models.BooleanField(default=True, db_column='is_activated')
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Employee', db_index=True)
-    sub_position = models.CharField(max_length=50, choices=SUB_POSITION_CHOICES, null=True, blank=True)
+    sub_position = models.CharField(max_length=100, null=True, blank=True)
     manager = models.ForeignKey(
         'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='subordinates'
     )
@@ -114,3 +104,16 @@ class User(AbstractUser):
 
     def has_perm_key(self, key):
         return key in self.effective_permissions()
+
+
+class Position(models.Model):
+    """Named position (e.g. "Proposal Writer") that bundles one or more RBAC roles."""
+    name = models.CharField(max_length=100, unique=True)
+    description = models.CharField(max_length=255, blank=True, default='')
+    role_ids = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
