@@ -12,28 +12,31 @@ from .serializers import (
     SharedDocumentSerializer, SendDocumentSerializer,
     DocumentRequestSerializer, CreateDocumentRequestSerializer,
 )
-from .services import send_document, create_document_request, decline_document_request
+from .services import send_document, create_document_request, decline_document_request, delete_document
 
 
 class SendDocumentView(views.APIView):
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
         ser = SendDocumentSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         d = ser.validated_data
 
-        if d['file'].size > settings.MAX_ATTACHMENT_SIZE:
-            return Response({'file': ['File too large.']}, status=400)
-
         if str(d['recipient_id']) == str(request.user.id):
             return Response({'recipient_id': ['Cannot send to yourself.']}, status=400)
+
+        f = d.get('file')
+        if f and f.size > settings.MAX_ATTACHMENT_SIZE:
+            return Response({'file': ['File too large.']}, status=400)
 
         doc = send_document(
             sender=request.user,
             recipient_id=d['recipient_id'],
-            file=d['file'],
+            file=f,
+            url=d.get('url') or None,
+            link_label=d.get('link_label', ''),
             message=d.get('message', ''),
             fulfills_request_id=d.get('fulfills_request_id'),
             request=request,
@@ -42,6 +45,18 @@ class SendDocumentView(views.APIView):
             SharedDocumentSerializer(doc, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
+
+
+class DocumentDeleteView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        doc = get_object_or_404(SharedDocument, id=pk)
+        try:
+            delete_document(doc=doc, actor=request.user, request=request)
+        except PermissionError as e:
+            return Response({'detail': str(e)}, status=403)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class InboxView(generics.ListAPIView):
@@ -68,12 +83,15 @@ class DocumentDownloadView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
+        from django.http import HttpResponseRedirect
         doc = get_object_or_404(SharedDocument, id=pk)
         if doc.recipient_id != request.user.id and doc.sender_id != request.user.id:
             return Response({'detail': 'Not allowed.'}, status=403)
         if doc.recipient_id == request.user.id and not doc.is_downloaded:
             doc.is_downloaded = True
             doc.save(update_fields=['is_downloaded'])
+        if doc.url:
+            return HttpResponseRedirect(doc.url)
         response = FileResponse(doc.file.open('rb'), content_type=doc.content_type or 'application/octet-stream')
         response['Content-Disposition'] = f'attachment; filename="{doc.filename}"'
         return response
@@ -81,6 +99,7 @@ class DocumentDownloadView(views.APIView):
 
 class DocumentRequestListCreateView(views.APIView):
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get(self, request):
         direction = request.query_params.get('direction', 'all')
@@ -105,11 +124,18 @@ class DocumentRequestListCreateView(views.APIView):
         if str(d['target_id']) == str(request.user.id):
             return Response({'target_id': ['Cannot request from yourself.']}, status=400)
 
+        attachment_file = d.get('file')
+        if attachment_file and attachment_file.size > settings.MAX_ATTACHMENT_SIZE:
+            return Response({'file': ['File too large.']}, status=400)
+
         req = create_document_request(
             requester=request.user,
             target_id=d['target_id'],
             document_type=d['document_type'],
             message=d.get('message', ''),
+            attachment_file=attachment_file,
+            attachment_url=d.get('url') or None,
+            attachment_link_label=d.get('link_label', ''),
             request=request,
         )
         return Response(
@@ -134,3 +160,14 @@ class DocumentRequestActionView(views.APIView):
             return Response(DocumentRequestSerializer(req, context={'request': request}).data)
 
         return Response({'detail': 'Invalid action.'}, status=400)
+
+    def delete(self, request, pk):
+        req = get_object_or_404(DocumentRequest, id=pk)
+        if req.requester_id != request.user.id:
+            return Response({'detail': 'Only the requester can cancel.'}, status=403)
+        if req.status != 'pending':
+            return Response({'detail': f'Cannot cancel a {req.status} request.'}, status=400)
+        if req.attachment_file:
+            req.attachment_file.delete(save=False)
+        req.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

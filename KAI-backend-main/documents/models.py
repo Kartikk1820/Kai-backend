@@ -6,6 +6,10 @@ def shared_document_path(instance, filename):
     return f"documents/shared/{instance.sender_id}/{filename}"
 
 
+def request_attachment_path(instance, filename):
+    return f"documents/requests/{instance.requester_id}/{filename}"
+
+
 class SharedDocument(models.Model):
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
@@ -15,7 +19,9 @@ class SharedDocument(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
         related_name='received_documents', db_index=True,
     )
-    file = models.FileField(upload_to=shared_document_path)
+    file = models.FileField(upload_to=shared_document_path, null=True, blank=True)
+    url = models.URLField(max_length=2048, null=True, blank=True)
+    link_label = models.CharField(max_length=255, blank=True)
     filename = models.CharField(max_length=255)
     size = models.PositiveIntegerField(default=0)
     content_type = models.CharField(max_length=120, blank=True)
@@ -52,6 +58,10 @@ class DocumentRequest(models.Model):
     document_type = models.CharField(max_length=255)
     message = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS, default='pending', db_index=True)
+    # Optional attachment the requester includes with the request (e.g. a template)
+    attachment_file = models.FileField(upload_to=request_attachment_path, null=True, blank=True)
+    attachment_url = models.URLField(max_length=2048, null=True, blank=True)
+    attachment_filename = models.CharField(max_length=255, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

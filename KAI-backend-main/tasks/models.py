@@ -213,7 +213,9 @@ def attachment_path(instance, filename):
 
 class Attachment(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='attachments')
-    file = models.FileField(upload_to=attachment_path)
+    file = models.FileField(upload_to=attachment_path, null=True, blank=True)
+    url = models.URLField(max_length=2048, null=True, blank=True)
+    link_label = models.CharField(max_length=255, blank=True)
     filename = models.CharField(max_length=255)
     size = models.PositiveIntegerField(default=0)
     content_type = models.CharField(max_length=120, blank=True)

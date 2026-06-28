@@ -83,16 +83,22 @@ class CommentSerializer(serializers.ModelSerializer):
 class AttachmentSerializer(serializers.ModelSerializer):
     uploaded_by = UserMiniSerializer(read_only=True)
     url = serializers.SerializerMethodField()
+    is_link = serializers.SerializerMethodField()
 
     class Meta:
         model = Attachment
-        fields = ['id', 'filename', 'size', 'content_type', 'uploaded_by', 'uploaded_at', 'url']
+        fields = ['id', 'filename', 'size', 'content_type', 'uploaded_by', 'uploaded_at', 'url', 'link_label', 'is_link']
 
     def get_url(self, obj):
+        if obj.url:
+            return obj.url
         request = self.context.get('request')
         if obj.file and request:
             return request.build_absolute_uri(obj.file.url)
-        return obj.file.url if obj.file else None
+        return None
+
+    def get_is_link(self, obj):
+        return bool(obj.url)
 
 
 class TaskLinkSerializer(serializers.ModelSerializer):

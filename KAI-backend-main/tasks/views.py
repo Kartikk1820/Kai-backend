@@ -256,18 +256,28 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     # ---- attachments ----
     @action(detail=True, methods=['post'], url_path='attachments',
-            parser_classes=[MultiPartParser, FormParser])
+            parser_classes=[MultiPartParser, FormParser, JSONParser])
     def add_attachment(self, request, pk=None):
         task = self.get_object()
         f = request.FILES.get('file')
-        if not f:
-            return Response({'file': ['No file provided.']}, status=400)
-        if f.size > settings.MAX_ATTACHMENT_SIZE:
-            return Response({'file': ['File too large.']}, status=400)
-        att = Attachment.objects.create(
-            task=task, file=f, filename=f.name, size=f.size,
-            content_type=getattr(f, 'content_type', ''), uploaded_by=request.user,
-        )
+        url = request.data.get('url', '').strip()
+        link_label = request.data.get('link_label', '').strip()
+
+        if f:
+            if f.size > settings.MAX_ATTACHMENT_SIZE:
+                return Response({'file': ['File too large.']}, status=400)
+            att = Attachment.objects.create(
+                task=task, file=f, filename=f.name, size=f.size,
+                content_type=getattr(f, 'content_type', ''), uploaded_by=request.user,
+            )
+        elif url:
+            att = Attachment.objects.create(
+                task=task, url=url, link_label=link_label,
+                filename=link_label or url, size=0, uploaded_by=request.user,
+            )
+        else:
+            return Response({'detail': 'Provide a file or a URL.'}, status=400)
+
         return Response(AttachmentSerializer(att, context={'request': request}).data, status=201)
 
     @action(detail=True, methods=['delete'], url_path='attachments/(?P<aid>[^/.]+)')
@@ -277,7 +287,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not (request.user.role == 'Admin' or request.user.has_perm_key('task.manage_tasks')
                 or att.uploaded_by_id == request.user.id or task.reporter_id == request.user.id):
             return Response({'detail': 'Not allowed.'}, status=403)
-        att.file.delete(save=False)
+        if att.file:
+            att.file.delete(save=False)
         att.delete()
         return Response(status=204)
 
