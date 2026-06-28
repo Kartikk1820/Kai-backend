@@ -10,7 +10,7 @@ from core.permissions_catalog import HR_APPROVE_LEAVE
 from notifications.services import notify
 from .models import (
     LeaveRequest, LeaveBalance, Attendance, Compensation, PayrollRecord,
-    PayrollRun, Incentive, AdvanceSalaryRequest,
+    PayrollRun, Incentive,
 )
 
 
@@ -99,50 +99,12 @@ class LeaveService:
 
 class PayrollService:
 
-    @staticmethod
-    def _advance_recovery(employee):
-        total = Decimal('0')
-        to_close = []
-        for adv in AdvanceSalaryRequest.objects.filter(employee=employee, status='approved'):
-            remaining = adv.proposed_recovery_months - adv.months_recovered
-            if remaining <= 0:
-                to_close.append(adv)
-                continue
-            total += adv.monthly_recovery_amount
-        # Mark fully-recovered advances (shouldn't normally reach here, but safety net)
-        for adv in to_close:
-            adv.status = 'recovered'
-            adv.save(update_fields=['status'])
-        return total
-
-    @staticmethod
-    def _close_recovered_advances(employee):
-        for adv in AdvanceSalaryRequest.objects.filter(employee=employee, status='approved'):
-            adv.months_recovered += 1
-            if adv.months_recovered >= adv.proposed_recovery_months:
-                adv.status = 'recovered'
-            adv.save(update_fields=['months_recovered', 'status'])
-
-    @staticmethod
-    def _unpaid_deduction(employee, month, year, base_salary):
-        unpaid_days = Attendance.objects.filter(
-            employee=employee, date__month=month, date__year=year, status='leave'
-        ).filter(
-            employee__leave_requests__leave_type='unpaid',
-            employee__leave_requests__status='approved',
-        ).distinct().count()
-        if unpaid_days:
-            per_day = base_salary / Decimal('30')
-            return (per_day * unpaid_days).quantize(Decimal('0.01'))
-        return Decimal('0')
-
     @classmethod
     @transaction.atomic
     def run_salary(cls, month, year, user=None, request=None):
         run = PayrollRun.objects.create(run_type='salary', month=month, year=year,
                                         triggered_by=user, status='running')
         count, errors = 0, []
-        # Only internal employees get salary; exclude Clients
         paid_roles = ['Admin', 'Manager', 'Employee']
         comps = Compensation.objects.select_related('employee').filter(
             employee__is_active=True,
@@ -152,21 +114,17 @@ class PayrollService:
             emp = comp.employee
             base = comp.monthly_base_salary or Decimal('0')
             incentive = comp.monthly_incentive or Decimal('0')
-            advance = cls._advance_recovery(emp)
-            unpaid = cls._unpaid_deduction(emp, month, year, base)
-            net = base + incentive - advance - unpaid
+            net = base + incentive
             try:
-                rec, created = PayrollRecord.objects.update_or_create(
+                PayrollRecord.objects.update_or_create(
                     employee=emp, month=month, year=year, slip_type='salary',
                     defaults=dict(
                         run=run, entity=emp.entity or '', base_salary=base,
-                        incentive_amount=incentive,
-                        advance_deduction=advance, other_deductions=unpaid,
-                        net_amount=net, status='sent', sent_at=timezone.now(),
+                        incentive_amount=incentive, net_amount=net,
+                        status='sent', sent_at=timezone.now(),
                     ),
                 )
                 count += 1
-                cls._close_recovered_advances(emp)
                 notify(user=emp, kind='payslip_generated',
                        title='Your salary slip is ready',
                        body=f'Your salary slip for {month}/{year} has been generated. Net pay: ₹{net:,.2f}',

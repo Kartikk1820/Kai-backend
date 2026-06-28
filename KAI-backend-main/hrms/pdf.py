@@ -42,12 +42,9 @@ SLIP_HTML = """
   .emp-label {{ color: #737373; }}
   .emp-val {{ font-weight: 600; color: #1a1a1a; }}
 
-  .pay-row-outer {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }}
-  .pay-block {{ border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }}
+  .pay-block {{ border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; margin-bottom: 16px; }}
   .pay-head {{ padding: 10px 16px; font-size: 11px; font-weight: 700;
-               text-transform: uppercase; letter-spacing: 1px; color: white; }}
-  .pay-head.earn {{ background: #172c47; }}
-  .pay-head.deduct {{ background: #7f1d1d; }}
+               text-transform: uppercase; letter-spacing: 1px; color: white; background: #172c47; }}
   .pay-line {{ display: flex; justify-content: space-between; padding: 9px 16px;
                font-size: 13px; border-bottom: 1px solid #f5f5f5; }}
   .pay-line:last-child {{ border-bottom: none; font-weight: 700; background: #f8f9fb; }}
@@ -88,19 +85,11 @@ SLIP_HTML = """
     <div class="emp-cell"><span class="emp-label">Generated On</span><span class="emp-val">{generated}</span></div>
   </div>
 
-  <div class="pay-row-outer">
-    <div class="pay-block">
-      <div class="pay-head earn">Earnings</div>
-      <div class="pay-line"><span>Base Salary</span><span class="pay-amt">&#8377; {base_salary}</span></div>
-      <div class="pay-line"><span>Incentive / Bonus</span><span class="pay-amt">&#8377; {incentive_amount}</span></div>
-      <div class="pay-line"><span>Gross Pay</span><span class="pay-amt">&#8377; {gross_pay}</span></div>
-    </div>
-    <div class="pay-block">
-      <div class="pay-head deduct">Deductions</div>
-      <div class="pay-line"><span>Advance Recovery</span><span class="pay-amt">&#8377; {advance_deduction}</span></div>
-      <div class="pay-line"><span>Other Deductions</span><span class="pay-amt">&#8377; {other_deductions}</span></div>
-      <div class="pay-line"><span>Total Deductions</span><span class="pay-amt">&#8377; {total_deductions}</span></div>
-    </div>
+  <div class="pay-block">
+    <div class="pay-head">Earnings</div>
+    <div class="pay-line"><span>Base Salary</span><span class="pay-amt">&#8377; {base_salary}</span></div>
+    <div class="pay-line"><span>Incentive / Bonus</span><span class="pay-amt">&#8377; {incentive_amount}</span></div>
+    <div class="pay-line"><span>Gross Pay</span><span class="pay-amt">&#8377; {gross_pay}</span></div>
   </div>
 
   <div class="net-box">
@@ -129,7 +118,6 @@ def _fmt(value) -> str:
 
 def build_slip_html(record) -> str:
     gross = float(record.base_salary) + float(record.incentive_amount)
-    total_deductions = float(record.advance_deduction) + float(record.other_deductions)
     return SLIP_HTML.format(
         slip_type=record.get_slip_type_display(),
         employee_name=(f"{record.employee.first_name} {record.employee.last_name}".strip()
@@ -142,9 +130,6 @@ def build_slip_html(record) -> str:
         base_salary=_fmt(record.base_salary),
         incentive_amount=_fmt(record.incentive_amount),
         gross_pay=_fmt(gross),
-        advance_deduction=_fmt(record.advance_deduction),
-        other_deductions=_fmt(record.other_deductions),
-        total_deductions=_fmt(total_deductions),
         net_amount=_fmt(record.net_amount),
         status_label='Sent' if record.status == 'sent' else 'Generated',
         status_class='chip-sent' if record.status == 'sent' else 'chip-gen',

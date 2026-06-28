@@ -70,8 +70,8 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
     class Meta:
         model = PayrollRecord
         fields = ['id', 'employee_id', 'employee_name', 'entity', 'month', 'year', 'slip_type',
-                  'base_salary', 'incentive_amount', 'advance_deduction', 'other_deductions',
-                  'net_amount', 'status', 'generated_at', 'sent_at', 'notes']
+                  'base_salary', 'incentive_amount', 'net_amount', 'status', 'generated_at',
+                  'sent_at', 'notes']
 
     def get_employee_name(self, obj):
         return _emp_name(obj)

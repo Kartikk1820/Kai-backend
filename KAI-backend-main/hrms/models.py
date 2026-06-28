@@ -105,8 +105,6 @@ class PayrollRecord(models.Model):
     slip_type = models.CharField(max_length=20, choices=SLIP_TYPES)
     base_salary = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     incentive_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    advance_deduction = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    other_deductions = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     net_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='generated')
     generated_at = models.DateTimeField(auto_now_add=True)
