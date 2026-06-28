@@ -11,6 +11,7 @@ from core.permissions import HasPermissionKey
 from core.permissions_catalog import (
     HR_MARK_ATTENDANCE, HR_RUN_PAYROLL, HR_MANAGE_COMPENSATION,
     HR_MANAGE_INCENTIVE, HR_VIEW_DIRECTORY, HR_MANAGE_LEAVE_BALANCE,
+    USER_MANAGE_ROLES,
 )
 from core.services import write_audit
 from notifications.services import notify
@@ -21,7 +22,7 @@ from .models import (
 from .serializers import (
     AttendanceSerializer, LeaveBalanceSerializer, LeaveRequestSerializer,
     PayrollRecordSerializer, AdvanceSalaryRequestSerializer, CompensationSerializer,
-    EmployeeDetailSerializer, IncentiveSerializer, PayrollRunSerializer,
+    EmployeeDetailSerializer, EmployeeUpdateSerializer, IncentiveSerializer, PayrollRunSerializer,
 )
 from .services import LeaveService, PayrollService, IncentiveService, can_approve_for
 
@@ -426,6 +427,24 @@ class IncentiveSendAllView(APIView):
 
 # ============================ Directory ============================
 
+class EmployeePresenceView(APIView):
+    """Returns today's clock-in presence per employee: { "<user_id>": "present" | "offline" }"""
+    permission_classes = [HasPermissionKey.of(HR_VIEW_DIRECTORY)]
+
+    def get(self, request):
+        today = timezone.localtime().date()
+        from .models import AttendanceSession
+        clocked_in_ids = set(
+            AttendanceSession.objects
+            .filter(attendance__date=today, clock_out_time__isnull=True)
+            .values_list('attendance__employee_id', flat=True)
+        )
+        result = {}
+        for uid in User.objects.exclude(role='Client').values_list('id', flat=True):
+            result[str(uid)] = 'present' if uid in clocked_in_ids else 'offline'
+        return Response(result)
+
+
 class EmployeeListView(generics.ListAPIView):
     permission_classes = [HasPermissionKey.of(HR_VIEW_DIRECTORY)]
     serializer_class = EmployeeDetailSerializer
@@ -435,10 +454,27 @@ class EmployeeListView(generics.ListAPIView):
     ordering = ['id']
 
 
-class EmployeeDetailView(generics.RetrieveAPIView):
-    permission_classes = [HasPermissionKey.of(HR_VIEW_DIRECTORY)]
-    serializer_class = EmployeeDetailSerializer
+class EmployeeDetailView(generics.RetrieveUpdateAPIView):
     queryset = User.objects.exclude(role='Client')
+
+    def get_permissions(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return [HasPermissionKey.of(USER_MANAGE_ROLES)()]
+        return [HasPermissionKey.of(HR_VIEW_DIRECTORY)()]
+
+    def get_serializer_class(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return EmployeeUpdateSerializer
+        return EmployeeDetailSerializer
+
+    def update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        instance = self.get_object()
+        ser = EmployeeUpdateSerializer(instance, data=request.data, partial=True)
+        ser.is_valid(raise_exception=True)
+        ser.save()
+        instance.refresh_from_db()
+        return Response(EmployeeDetailSerializer(instance).data)
 
 
 # ============================ Advance salary ============================

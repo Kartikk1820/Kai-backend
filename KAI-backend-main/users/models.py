@@ -50,6 +50,8 @@ class User(AbstractUser):
         ('Data Collection Staff', 'Data Collection Staff'),
     ]
 
+    is_active = models.BooleanField(default=True, db_column='is_activated')
+
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Employee', db_index=True)
     sub_position = models.CharField(max_length=50, choices=SUB_POSITION_CHOICES, null=True, blank=True)
     manager = models.ForeignKey(

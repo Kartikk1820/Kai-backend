@@ -6,7 +6,7 @@ from .views import (
     PayrollRecordListView, PayrollSlipDownloadView, PayrollRunView,
     IncentiveListCreateView, IncentiveDetailView, IncentiveSendNowView, IncentiveSendAllView,
     AdvanceSalaryListView, AdvanceSalaryCreateView, AdvanceSalaryStatusUpdateView,
-    EmployeeListView, EmployeeDetailView,
+    EmployeeListView, EmployeeDetailView, EmployeePresenceView,
 )
 
 urlpatterns = [
@@ -44,4 +44,5 @@ urlpatterns = [
     # Directory
     path('view_employee/', EmployeeListView.as_view()),
     path('view_employee/<int:pk>/', EmployeeDetailView.as_view()),
+    path('employee-presence/', EmployeePresenceView.as_view()),
 ]

@@ -143,3 +143,21 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
         fields = ['id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
                   'role', 'sub_position', 'manager', 'is_active', 'date_joined',
                   'phone_number', 'date_of_joining', 'entity', 'compensation', 'leave_balance']
+
+
+class EmployeeUpdateSerializer(serializers.ModelSerializer):
+    date_of_joining = serializers.DateField(required=False, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'role', 'sub_position', 'entity',
+                  'phone_number', 'date_of_joining', 'is_active']
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'role': {'required': False},
+            'sub_position': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'entity': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'phone_number': {'required': False, 'allow_blank': True},
+            'is_active': {'required': False},
+        }
