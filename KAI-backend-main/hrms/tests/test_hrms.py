@@ -6,6 +6,7 @@ from hrms.models import (
     LeaveRequest, LeaveBalance, Attendance, CompensationVersion, PayrollRecord, Incentive,
 )
 from hrms.services import LeaveService, PayrollService, IncentiveService
+from hrms.utils import amount_to_words_inr
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -70,7 +71,7 @@ def test_payroll_idempotent(emp, admin):
     CompensationVersion.objects.create(
         employee=emp,
         effective_from=date(2026, 1, 1),
-        monthly_base_salary=Decimal('30000'),
+        basic_salary=Decimal('30000'),
     )
     PayrollService.run_salary(5, 2026, user=admin)
     PayrollService.run_salary(5, 2026, user=admin)
@@ -80,7 +81,7 @@ def test_payroll_idempotent(emp, admin):
 def test_payroll_skips_employee_with_unmarked_attendance(emp, admin):
     CompensationVersion.objects.create(
         employee=emp, effective_from=date(2026, 1, 1),
-        monthly_base_salary=Decimal('30000'),
+        basic_salary=Decimal('30000'),
     )
     Attendance.objects.create(employee=emp, date=date(2026, 5, 10), status='unmarked')
     run = PayrollService.run_salary(5, 2026, user=admin)
@@ -92,7 +93,7 @@ def test_payroll_lop_deduction(emp, admin):
     """LOP days reduce net below gross."""
     CompensationVersion.objects.create(
         employee=emp, effective_from=date(2026, 1, 1),
-        monthly_base_salary=Decimal('30000'),
+        basic_salary=Decimal('30000'),
     )
     Attendance.objects.create(employee=emp, date=date(2026, 5, 10), status='lop')
     PayrollService.run_salary(5, 2026, user=admin)
@@ -100,6 +101,34 @@ def test_payroll_lop_deduction(emp, admin):
     assert rec.lop_days == Decimal('1')
     assert rec.lop_deduction > Decimal('0')
     assert rec.net_amount < rec.gross_earnings
+
+
+def test_payroll_attendance_snapshot(emp, admin):
+    """Attendance breakdown fields are snapshotted on PayrollRecord."""
+    CompensationVersion.objects.create(
+        employee=emp, effective_from=date(2026, 1, 1),
+        basic_salary=Decimal('30000'),
+    )
+    Attendance.objects.create(employee=emp, date=date(2026, 5, 5), status='present')
+    Attendance.objects.create(employee=emp, date=date(2026, 5, 6), status='sick_leave')
+    Attendance.objects.create(employee=emp, date=date(2026, 5, 7), status='weekly_off')
+    Attendance.objects.create(employee=emp, date=date(2026, 5, 11), status='holiday')
+    PayrollService.run_salary(5, 2026, user=admin)
+    rec = PayrollRecord.objects.get(employee=emp, month=5, year=2026, slip_type='salary')
+    assert rec.days_present == Decimal('1')
+    assert rec.paid_leave_days == Decimal('1')
+    assert rec.weekly_offs == 1
+    assert rec.public_holidays == 1
+    assert rec.total_working_days > 0
+
+
+def test_amount_to_words_inr():
+    assert amount_to_words_inr(0) == 'Zero Rupees'
+    assert amount_to_words_inr(100000) == 'One Lakh Rupees'
+    assert amount_to_words_inr(1500000) == 'Fifteen Lakh Rupees'
+    assert amount_to_words_inr(41695) == 'Forty One Thousand Six Hundred Ninety Five Rupees'
+    assert amount_to_words_inr(10000000) == 'One Crore Rupees'
+    assert amount_to_words_inr(1234567) == 'Twelve Lakh Thirty Four Thousand Five Hundred Sixty Seven Rupees'
 
 
 def test_incentive_send(emp, admin):

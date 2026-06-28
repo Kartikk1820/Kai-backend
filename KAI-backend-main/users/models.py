@@ -17,6 +17,19 @@ class Entity(models.Model):
         return f"{self.code} — {self.name}"
 
 
+class Department(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    entity = models.ForeignKey(
+        Entity, null=True, blank=True, on_delete=models.SET_NULL, related_name='departments'
+    )
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class CustomUserManager(BaseUserManager):
     use_in_migrations = True
 
@@ -65,6 +78,12 @@ class User(AbstractUser):
     entity = models.ForeignKey(
         Entity, null=True, blank=True, on_delete=models.SET_NULL, related_name='employees'
     )
+    department = models.ForeignKey(
+        'Department', null=True, blank=True, on_delete=models.SET_NULL, related_name='employees'
+    )
+    pan_number = models.CharField(max_length=10, null=True, blank=True)
+    uan_number = models.CharField(max_length=20, null=True, blank=True)
+    is_pf_applicable = models.BooleanField(default=False)
 
     must_change_password = models.BooleanField(default=True)
 
@@ -110,6 +129,23 @@ class User(AbstractUser):
 
     def has_perm_key(self, key):
         return key in self.effective_permissions()
+
+
+class EmployeeBankAccount(models.Model):
+    employee = models.ForeignKey(
+        'User', on_delete=models.CASCADE, related_name='bank_accounts'
+    )
+    bank_name = models.CharField(max_length=100)
+    account_number = models.CharField(max_length=30)
+    ifsc_code = models.CharField(max_length=15, blank=True)
+    is_active = models.BooleanField(default=True)
+    effective_from = models.DateField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-effective_from']
+
+    def __str__(self):
+        return f"{self.employee} — {self.bank_name} ({self.account_number[-4:]})"
 
 
 class Position(models.Model):

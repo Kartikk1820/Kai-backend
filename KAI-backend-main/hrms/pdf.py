@@ -1,7 +1,6 @@
-"""Salary / incentive slip PDF rendering.
+"""Salary / incentive slip PDF rendering — KQT template design.
 
-Rendering uses Playwright (headless Chromium) so slips render with full CSS,
-web fonts, and the exact KAI navy/gold theme. A minimal-PDF fallback is kept
+Rendering uses Playwright (headless Chromium). A minimal-PDF fallback is kept
 so a missing browser never breaks the download endpoint.
 
 One-time setup after `pip install -r requirements.txt`:
@@ -11,168 +10,347 @@ import calendar
 import datetime
 import structlog
 
+from .utils import amount_to_words_inr
+
 logger = structlog.get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Colours (from KQT_Payslip_Template.docx)
+# ---------------------------------------------------------------------------
+_DARK_BLUE   = '#043AA7'   # header bar, section headers, gross/total row
+_MID_BLUE    = '#2CA0ED'   # NET PAY box
+_TITLE_BLUE  = '#3270DF'   # title band
+_ROW_LIGHT   = '#EBF4FE'   # label cells, employee details rows
+_ROW_ALT     = '#F5F5F5'   # alternating earnings/deductions rows
+_LOP_YELLOW  = '#FFF8E1'   # LOP calculation note box
 
-SLIP_HTML = """
+SLIP_HTML = """\
 <!doctype html><html><head><meta charset="utf-8"><style>
-  @page {{ size: A4; margin: 0; }}
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{ font-family: 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; background: white; }}
-  .wrap {{ max-width: 794px; margin: 0 auto; padding: 44px 48px; }}
+@page {{ size: A4; margin: 0; }}
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{ font-family: Arial, Helvetica, sans-serif; font-size: 11px;
+        color: #1a1a1a; background: white; }}
+.wrap {{ max-width: 794px; margin: 0 auto; padding: 28px 36px; }}
 
-  .header {{ display: flex; justify-content: space-between; align-items: flex-start;
-             padding-bottom: 20px; border-bottom: 3px solid #172c47; margin-bottom: 22px; }}
-  .brand-name {{ font-size: 26px; font-weight: 800; color: #172c47; letter-spacing: 1.5px; }}
-  .brand-sub {{ font-size: 10px; color: #9e7f43; text-transform: uppercase; letter-spacing: 2px; margin-top: 4px; }}
-  .slip-title-block {{ text-align: right; }}
-  .slip-title-block h1 {{ font-size: 14px; font-weight: 700; color: #172c47; text-transform: uppercase; letter-spacing: 1px; }}
-  .slip-title-block p {{ font-size: 12px; color: #737373; margin-top: 5px; }}
-  .status-chip {{ display: inline-block; margin-top: 8px; padding: 3px 12px; border-radius: 20px;
-                  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }}
-  .chip-sent {{ background: #d1fae5; color: #065f46; }}
-  .chip-gen  {{ background: #dbeafe; color: #1e40af; }}
+/* ── Header ── */
+.hdr {{ display: flex; align-items: flex-start; gap: 16px;
+        border-bottom: 3px solid {dark_blue}; padding-bottom: 12px; margin-bottom: 10px; }}
+.hdr-logo {{ width: 56px; height: 56px; border: 1px solid #ccc;
+              display: flex; align-items: center; justify-content: center;
+              font-size: 9px; color: #888; flex-shrink: 0; }}
+.hdr-text {{ flex: 1; }}
+.hdr-company {{ font-size: 15px; font-weight: 700; color: {dark_blue}; }}
+.hdr-address {{ font-size: 9.5px; color: #555; margin-top: 3px; line-height: 1.5; }}
 
-  .emp-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 0;
-               border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; margin-bottom: 22px; }}
-  .emp-cell {{ display: flex; justify-content: space-between; align-items: center;
-               padding: 9px 16px; border-bottom: 1px solid #f0f0f0; font-size: 12.5px; }}
-  .emp-cell:nth-child(odd) {{ background: #f8f9fb; border-right: 1px solid #e0e0e0; }}
-  .emp-cell:last-child, .emp-cell:nth-last-child(2) {{ border-bottom: none; }}
-  .emp-label {{ color: #737373; }}
-  .emp-val {{ font-weight: 600; color: #1a1a1a; }}
+/* ── Title band ── */
+.title-band {{ background: {title_blue}; color: white; text-align: center;
+               padding: 9px 0; margin-bottom: 12px; }}
+.title-band h1 {{ font-size: 13px; font-weight: 700; letter-spacing: 1.5px;
+                   text-transform: uppercase; }}
+.title-band p  {{ font-size: 10px; margin-top: 2px; opacity: .9; }}
 
-  .pay-block {{ border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; margin-bottom: 16px; }}
-  .pay-head {{ padding: 10px 16px; font-size: 11px; font-weight: 700;
-               text-transform: uppercase; letter-spacing: 1px; color: white; background: #172c47; }}
-  .pay-head.deduct {{ background: #6b2737; }}
-  .pay-line {{ display: flex; justify-content: space-between; padding: 9px 16px;
-               font-size: 13px; border-bottom: 1px solid #f5f5f5; }}
-  .pay-line:last-child {{ border-bottom: none; font-weight: 700; background: #f8f9fb; }}
-  .pay-line.zero {{ color: #b0b0b0; }}
-  .pay-amt {{ font-variant-numeric: tabular-nums; }}
-  .pay-amt.neg {{ color: #9b1c1c; }}
+/* ── Section heading ── */
+.sec-head {{ font-size: 11px; font-weight: 700; color: {dark_blue};
+             border-bottom: 1.5px solid {dark_blue};
+             padding-bottom: 3px; margin: 12px 0 6px; text-transform: uppercase;
+             letter-spacing: .5px; }}
 
-  .net-box {{ background: linear-gradient(135deg, #172c47 0%, #0d1f36 100%); color: white;
-              border-radius: 8px; padding: 22px 28px;
-              display: flex; justify-content: space-between; align-items: center; }}
-  .net-label {{ font-size: 14px; opacity: .75; margin-bottom: 4px; }}
-  .net-period {{ font-size: 11px; opacity: .5; }}
-  .net-amount {{ font-size: 30px; font-weight: 800; color: #f0c96e; font-variant-numeric: tabular-nums; }}
+/* ── 4-col detail table (Employee Details / Attendance) ── */
+.dtbl {{ width: 100%; border-collapse: collapse; margin-bottom: 4px; }}
+.dtbl td {{ padding: 5px 8px; font-size: 10.5px; border: 1px solid #d0d8e8; }}
+.dtbl .lbl {{ background: {row_light}; font-weight: 600; color: #333; width: 20%; }}
+.dtbl .val {{ background: #fff; width: 30%; }}
 
-  .footer {{ margin-top: 32px; display: flex; justify-content: space-between; align-items: flex-end;
-             padding-top: 20px; border-top: 1px solid #e0e0e0; }}
-  .footer-note {{ font-size: 10px; color: #a3a3a3; line-height: 1.6; }}
-  .sig-line {{ width: 160px; border-top: 1px solid #aaa; padding-top: 6px;
-               font-size: 10px; color: #737373; text-align: center; }}
+/* ── Salary particulars (4-col side-by-side) ── */
+.stbl {{ width: 100%; border-collapse: collapse; margin-bottom: 4px; }}
+.stbl td {{ padding: 5px 8px; font-size: 10.5px; border: 1px solid #d0d8e8; }}
+.stbl .shdr {{ background: {dark_blue}; color: white; font-weight: 700;
+               font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }}
+.stbl .slbl {{ width: 27%; }}
+.stbl .samt {{ width: 23%; text-align: right; font-variant-numeric: tabular-nums; }}
+.stbl .srow-alt {{ background: {row_alt}; }}
+.stbl .srow-even {{ background: #fff; }}
+.stbl .stotal {{ background: {dark_blue}; color: white; font-weight: 700; }}
+.stbl .stotal .samt {{ color: #ffe082; }}
+.zero {{ color: #b0b0b0; }}
+
+/* ── Net Pay band ── */
+.net-band {{ display: flex; margin: 10px 0 8px; border: 1px solid #d0d8e8; }}
+.net-words {{ flex: 1; background: {row_light}; padding: 10px 12px;
+              font-size: 10.5px; line-height: 1.6; }}
+.net-words strong {{ font-size: 11px; color: {dark_blue}; }}
+.net-box {{ background: {mid_blue}; color: white; padding: 10px 18px;
+            min-width: 160px; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; text-align: center; }}
+.net-box .nl {{ font-size: 11px; font-weight: 700; opacity: .9;
+                text-transform: uppercase; letter-spacing: .5px; }}
+.net-box .na {{ font-size: 18px; font-weight: 800;
+                font-variant-numeric: tabular-nums; margin-top: 4px; }}
+
+/* ── LOP note box ── */
+.lop-box {{ background: {lop_yellow}; border: 1px solid #e0c87a;
+            padding: 9px 12px; font-size: 10px; line-height: 1.7; }}
+.lop-box strong {{ color: {dark_blue}; }}
+
+/* ── Footer ── */
+.footer {{ margin-top: 18px; border-top: 1px solid #ccc;
+           padding-top: 10px; display: flex; justify-content: space-between; }}
+.footer-note {{ font-size: 9px; color: #888; line-height: 1.7; }}
+.sig-line {{ width: 140px; border-top: 1px solid #aaa; padding-top: 5px;
+              font-size: 9.5px; color: #555; text-align: center; }}
 </style></head><body>
 <div class="wrap">
-  <div class="header">
-    <div>
-      <div class="brand-name">KC PORTAL</div>
-      <div class="brand-sub">Human Resource Management</div>
-    </div>
-    <div class="slip-title-block">
-      <h1>{slip_type} Slip</h1>
-      <p>Pay Period: {month_name} {year}</p>
-      <span class="status-chip {status_class}">{status_label}</span>
+
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-logo">Logo</div>
+    <div class="hdr-text">
+      <div class="hdr-company">{company_name}</div>
+      <div class="hdr-address">{company_address}<br>{company_cin}</div>
     </div>
   </div>
 
-  <div class="emp-grid">
-    <div class="emp-cell"><span class="emp-label">Employee Name</span><span class="emp-val">{employee_name}</span></div>
-    <div class="emp-cell"><span class="emp-label">Employee ID</span><span class="emp-val">EMP-{employee_id:04d}</span></div>
-    <div class="emp-cell"><span class="emp-label">Entity</span><span class="emp-val">{entity}</span></div>
-    <div class="emp-cell"><span class="emp-label">Pay Period</span><span class="emp-val">{month_name} {year}</span></div>
-    <div class="emp-cell"><span class="emp-label">Email</span><span class="emp-val">{email}</span></div>
-    <div class="emp-cell"><span class="emp-label">Generated On</span><span class="emp-val">{generated}</span></div>
+  <!-- Title band -->
+  <div class="title-band">
+    <h1>Payslip / Salary Statement</h1>
+    <p>For the Month of {month_name} {year}</p>
   </div>
 
-  <div class="pay-block">
-    <div class="pay-head">Earnings</div>
-    <div class="pay-line"><span>Base Salary</span><span class="pay-amt">&#8377; {base_salary}</span></div>
-    <div class="pay-line"><span>Incentive / Bonus</span><span class="pay-amt">&#8377; {incentive_amount}</span></div>
-    <div class="pay-line"><span>Gross Earnings</span><span class="pay-amt">&#8377; {gross_earnings}</span></div>
-  </div>
+  <!-- Employee Details -->
+  <div class="sec-head">Employee Details</div>
+  <table class="dtbl">
+    <tr>
+      <td class="lbl">Employee Name</td><td class="val">{employee_name}</td>
+      <td class="lbl">Employee ID</td><td class="val">EMP-{employee_id:04d}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Designation</td><td class="val">{designation}</td>
+      <td class="lbl">Department</td><td class="val">{department}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Date of Joining</td><td class="val">{date_of_joining}</td>
+      <td class="lbl">Pay Period</td><td class="val">{month_name} {year}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Bank Name</td><td class="val">{bank_name}</td>
+      <td class="lbl">Account No.</td><td class="val">{account_no}</td>
+    </tr>
+    <tr>
+      <td class="lbl">PAN Number</td><td class="val">{pan_number}</td>
+      <td class="lbl">UAN Number</td><td class="val">{uan_number}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Working Days</td><td class="val">{total_working_days}</td>
+      <td class="lbl">Days Paid For</td><td class="val">{days_paid_for}</td>
+    </tr>
+  </table>
 
-  {deductions_block}
+  <!-- Attendance & Leave Details -->
+  <div class="sec-head">Attendance &amp; Leave Details</div>
+  <table class="dtbl">
+    <tr>
+      <td class="lbl">Total Working Days</td><td class="val">{total_working_days}</td>
+      <td class="lbl">Paid Leave Availed</td><td class="val">{paid_leave_days}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Days Present</td><td class="val">{days_present}</td>
+      <td class="lbl">Loss of Pay (LOP) Days</td><td class="val">{lop_days}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Weekly Offs</td><td class="val">{weekly_offs}</td>
+      <td class="lbl">Public Holidays</td><td class="val">{public_holidays}</td>
+    </tr>
+  </table>
 
-  <div class="net-box">
-    <div>
-      <div class="net-label">Net Pay</div>
-      <div class="net-period">{month_name} {year}</div>
+  <!-- Salary Particulars -->
+  <div class="sec-head">Salary Particulars</div>
+  <table class="stbl">
+    <tr>
+      <td class="shdr slbl">Earnings</td>
+      <td class="shdr samt">Amount (&#8377;)</td>
+      <td class="shdr slbl">Deductions</td>
+      <td class="shdr samt">Amount (&#8377;)</td>
+    </tr>
+    {salary_rows}
+    <tr>
+      <td class="stotal slbl">Gross Earnings</td>
+      <td class="stotal samt">&#8377; {gross_earnings}</td>
+      <td class="stotal slbl">Total Deductions</td>
+      <td class="stotal samt">&#8377; {total_deductions}</td>
+    </tr>
+  </table>
+
+  <!-- Net Pay -->
+  <div class="net-band">
+    <div class="net-words">
+      <strong>Net Pay in Words:</strong><br>
+      {net_pay_words} Only
     </div>
-    <div class="net-amount">&#8377; {net_amount}</div>
+    <div class="net-box">
+      <div class="nl">Net Pay</div>
+      <div class="na">&#8377; {net_amount}</div>
+    </div>
   </div>
 
+  {lop_note}
+
+  <!-- Footer -->
   <div class="footer">
     <div class="footer-note">
-      <div>Generated on {generated}</div>
-      <div>This is a computer-generated document and does not require a physical signature.</div>
+      Generated on {generated}<br>
+      This is a computer-generated document and does not require a physical signature.
     </div>
     <div class="sig-line">Authorised Signatory</div>
   </div>
-</div>
-</body></html>
-"""
 
-DEDUCTIONS_BLOCK = """
-  <div class="pay-block">
-    <div class="pay-head deduct">Deductions</div>
-    {lop_line}
-    {pt_line}
-    {tds_line}
-    {other_line}
-    <div class="pay-line"><span>Total Deductions</span><span class="pay-amt neg">&#8377; {total_deductions}</span></div>
-  </div>
+</div></body></html>
 """
-
-DEDUCTION_LINE = '<div class="pay-line{zero_class}"><span>{label}</span><span class="pay-amt neg">&#8377; {amount}</span></div>'
-ZERO_LINE = '<div class="pay-line zero"><span>{label}</span><span class="pay-amt">&#8377; {amount}</span></div>'
 
 
 def _fmt(value) -> str:
     return f"{float(value):,.2f}"
 
 
-def _deduction_line(label, value) -> str:
-    fmtd = _fmt(value)
-    if float(value) == 0:
-        return ZERO_LINE.format(label=label, amount=fmtd)
-    return DEDUCTION_LINE.format(zero_class='', label=label, amount=fmtd)
+def _fmt_days(value) -> str:
+    f = float(value)
+    return str(int(f)) if f == int(f) else f"{f:.1f}"
 
 
-def _build_deductions_block(record) -> str:
-    lop_label = f"LOP Deduction ({_fmt(record.lop_days)} day{'s' if float(record.lop_days) != 1 else ''})"
-    return DEDUCTIONS_BLOCK.format(
-        lop_line=_deduction_line(lop_label, record.lop_deduction),
-        pt_line=_deduction_line('Professional Tax', record.professional_tax),
-        tds_line=_deduction_line('TDS', record.tds_deduction),
-        other_line=_deduction_line('Other Deductions', record.other_deductions),
-        total_deductions=_fmt(record.total_deductions),
+def _earn_row(label, value, row_class) -> str:
+    cls = f'{row_class} zero' if float(value) == 0 else row_class
+    return (
+        f'<td class="slbl {cls}">{label}</td>'
+        f'<td class="samt {cls}">&#8377; {_fmt(value)}</td>'
     )
 
 
+def _ded_row(label, value, row_class) -> str:
+    cls = f'{row_class} zero' if float(value) == 0 else row_class
+    return (
+        f'<td class="slbl {cls}">{label}</td>'
+        f'<td class="samt {cls}">&#8377; {_fmt(value)}</td>'
+    )
+
+
+def _build_salary_rows(record) -> str:
+    """Build the paired earnings|deductions rows of the salary particulars table.
+
+    Earnings: 7 lines (Basic, HRA, Special, Conveyance, Medical, Performance Bonus, Other)
+    Deductions: 5 lines (PT, TDS, LOP, Advance Recovery, Other)
+    Earnings has more rows — pad deductions side with empty cells.
+    """
+    earn_items = [
+        ('Basic Salary', record.basic_salary),
+        ('House Rent Allowance (HRA)', record.hra),
+        ('Special Allowance', record.special_allowance),
+        ('Conveyance Allowance', record.conveyance_allowance),
+        ('Medical Allowance', record.medical_allowance),
+        ('Performance Bonus', record.performance_bonus),
+        ('Other Allowance', record.other_allowance),
+    ]
+    lop_label = (f"Loss of Pay (LOP) Deduction"
+                 f" ({_fmt_days(record.lop_days)} day{'s' if float(record.lop_days) != 1 else ''})")
+    ded_items = [
+        ('Professional Tax (PT)', record.professional_tax),
+        ('Tax Deducted at Source (TDS)', record.tds_deduction),
+        (lop_label, record.lop_deduction),
+        ('Advance Recovery', record.advance_recovery),
+        ('Other Deduction (if any)', record.other_deductions),
+    ]
+
+    # Incentive slip: only show the incentive_amount row
+    if record.slip_type == 'incentive':
+        earn_items = [('Incentive / Bonus', record.incentive_amount)]
+        ded_items = []
+
+    rows = []
+    max_len = max(len(earn_items), len(ded_items))
+    for i in range(max_len):
+        row_class = 'srow-alt' if i % 2 == 0 else 'srow-even'
+        ecells = _earn_row(*earn_items[i], row_class) if i < len(earn_items) else (
+            f'<td class="slbl {row_class}"></td><td class="samt {row_class}"></td>'
+        )
+        dcells = _ded_row(*ded_items[i], row_class) if i < len(ded_items) else (
+            f'<td class="slbl {row_class}"></td><td class="samt {row_class}"></td>'
+        )
+        rows.append(f'<tr>{ecells}{dcells}</tr>')
+    return '\n    '.join(rows)
+
+
+def _build_lop_note(record) -> str:
+    if float(record.lop_days) == 0:
+        return ''
+    wd = record.total_working_days or 1
+    per_day = float(record.basic_salary) / wd if wd else 0
+    return (
+        f'<div class="lop-box">'
+        f'<strong>LOP (Loss of Pay) Calculation Note</strong><br>'
+        f'LOP Deduction Formula: LOP Amount = (Gross Monthly Salary &divide; Total Working Days) &times; LOP Days<br>'
+        f'LOP Days for this month: {_fmt_days(record.lop_days)}'
+        f'&nbsp;&nbsp;|&nbsp;&nbsp;Per-Day Rate: &#8377; {per_day:,.2f}'
+        f'&nbsp;&nbsp;|&nbsp;&nbsp;Total LOP Deduction: &#8377; {_fmt(record.lop_deduction)}'
+        f'</div>'
+    )
+
+
+def _get_bank_info(employee):
+    acct = employee.bank_accounts.filter(is_active=True).first()
+    if acct:
+        return acct.bank_name, acct.account_number
+    return '—', '—'
+
+
 def build_slip_html(record) -> str:
-    has_deductions = float(record.total_deductions) > 0 or record.slip_type == 'salary'
-    deductions_block = _build_deductions_block(record) if has_deductions else ''
+    emp = record.employee
+    bank_name, account_no = _get_bank_info(emp)
+
+    doj = emp.date_of_joining.strftime('%d/%m/%Y') if emp.date_of_joining else '—'
+    pan = emp.pan_number or '—'
+    uan = (emp.uan_number if (emp.uan_number and getattr(emp, 'is_pf_applicable', False))
+           else 'N/A (PF not applicable)')
+    designation = emp.sub_position or '—'
+    department = emp.department.name if (hasattr(emp, 'department') and emp.department_id) else '—'
+
+    # For incentive slips the attendance block is not meaningful — use zeros shown
+    days_paid = _fmt_days(record.days_paid_for) if record.slip_type == 'salary' else '—'
+    att_fields = {
+        'total_working_days': record.total_working_days if record.slip_type == 'salary' else '—',
+        'days_present': _fmt_days(record.days_present) if record.slip_type == 'salary' else '—',
+        'paid_leave_days': _fmt_days(record.paid_leave_days) if record.slip_type == 'salary' else '—',
+        'weekly_offs': record.weekly_offs if record.slip_type == 'salary' else '—',
+        'public_holidays': record.public_holidays if record.slip_type == 'salary' else '—',
+        'lop_days': _fmt_days(record.lop_days) if record.slip_type == 'salary' else '—',
+    }
 
     return SLIP_HTML.format(
-        slip_type=record.get_slip_type_display(),
-        employee_name=(f"{record.employee.first_name} {record.employee.last_name}".strip()
-                       or record.employee.email),
-        email=record.employee.email,
-        employee_id=record.employee_id,
+        dark_blue=_DARK_BLUE,
+        mid_blue=_MID_BLUE,
+        title_blue=_TITLE_BLUE,
+        row_light=_ROW_LIGHT,
+        row_alt=_ROW_ALT,
+        lop_yellow=_LOP_YELLOW,
+        company_name='Kaushik Quantum Technologies Pvt. Ltd.',
+        company_address='315, Khera Delhi – 110082, India',
+        company_cin='CIN: U62090DL2024PTC436525',
+        employee_name=(f"{emp.first_name} {emp.last_name}".strip() or emp.email),
+        employee_id=emp.id,
+        designation=designation,
+        department=department,
+        date_of_joining=doj,
         month_name=calendar.month_name[record.month],
         year=record.year,
-        entity=record.entity or '—',
-        base_salary=_fmt(record.base_salary),
-        incentive_amount=_fmt(record.incentive_amount),
+        bank_name=bank_name,
+        account_no=account_no,
+        pan_number=pan,
+        uan_number=uan,
+        days_paid_for=days_paid,
+        **att_fields,
+        salary_rows=_build_salary_rows(record),
         gross_earnings=_fmt(record.gross_earnings),
-        deductions_block=deductions_block,
+        total_deductions=_fmt(record.total_deductions),
+        net_pay_words=amount_to_words_inr(record.net_amount),
         net_amount=_fmt(record.net_amount),
-        status_label='Sent' if record.status == 'sent' else 'Generated',
-        status_class='chip-sent' if record.status == 'sent' else 'chip-gen',
+        lop_note=_build_lop_note(record),
         generated=datetime.date.today().strftime('%d %b %Y'),
     )
 

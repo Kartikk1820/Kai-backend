@@ -263,25 +263,48 @@ class PayrollService:
                     })
                     continue
 
-                # --- LOP calculation ---
-                lop_rows = Attendance.objects.filter(
+                # --- attendance pass: LOP + breakdown snapshot ---
+                att_rows = list(Attendance.objects.filter(
                     employee=emp, date__year=year, date__month=month,
-                    status__in=LOP_STATUSES,
-                )
-                lop_days = sum(
-                    Decimal('0.5') if row.is_half_day else Decimal('1')
-                    for row in lop_rows
-                )
+                ))
+                PAID_LEAVE_STATUSES = ('sick_leave', 'casual_leave', 'earned_leave')
 
-                base = comp.monthly_base_salary or Decimal('0')
-                incentive = comp.monthly_incentive or Decimal('0')
-                gross = base + incentive
+                lop_days = Decimal('0')
+                days_present = Decimal('0')
+                paid_leave_days = Decimal('0')
+                weekly_offs = 0
+                public_holidays = 0
+
+                for row in att_rows:
+                    weight = Decimal('0.5') if row.is_half_day else Decimal('1')
+                    if row.status in LOP_STATUSES:
+                        lop_days += weight
+                    elif row.status in ('present', 'wfh'):
+                        days_present += weight
+                    elif row.status == 'half_day':
+                        days_present += Decimal('0.5')
+                    elif row.status in PAID_LEAVE_STATUSES:
+                        paid_leave_days += weight
+                    elif row.status == 'weekly_off':
+                        weekly_offs += 1
+                    elif row.status == 'holiday':
+                        public_holidays += 1
+
+                # --- compensation components ---
+                basic = comp.basic_salary or Decimal('0')
+                hra = comp.hra or Decimal('0')
+                special = comp.special_allowance or Decimal('0')
+                conveyance = comp.conveyance_allowance or Decimal('0')
+                medical = comp.medical_allowance or Decimal('0')
+                other_allow = comp.other_allowance or Decimal('0')
+                perf_bonus = comp.monthly_incentive or Decimal('0')
+                gross = basic + hra + special + conveyance + medical + other_allow + perf_bonus
 
                 entity = emp.entity
                 working_days = _working_days_in_month(month, year, entity)
 
                 if working_days and lop_days:
-                    per_day_rate = (base / Decimal(working_days)).quantize(
+                    per_day_rate = (basic / Decimal(working_days)).quantize(
                         Decimal('0.01'), rounding=ROUND_HALF_UP
                     )
                     lop_deduction = (lop_days * per_day_rate).quantize(
@@ -296,7 +319,20 @@ class PayrollService:
                 # --- TDS from compensation snapshot ---
                 tds = comp.monthly_tds or Decimal('0')
 
-                total_deductions = (lop_deduction + pt + tds).quantize(
+                # --- advance recovery ---
+                from .models import AdvanceSalaryRequest
+                active_advances = list(
+                    AdvanceSalaryRequest.objects.select_for_update().filter(
+                        employee=emp, status='approved',
+                    ).exclude(months_recovered__gte=models.F('proposed_recovery_months'))
+                )
+                advance_recovery = sum(
+                    (a.monthly_recovery_amount for a in active_advances), Decimal('0')
+                ).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                days_paid_for = Decimal(working_days) - lop_days
+
+                total_deductions = (lop_deduction + pt + tds + advance_recovery).quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
                 net = (gross - total_deductions).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
@@ -308,13 +344,29 @@ class PayrollService:
                     defaults=dict(
                         run=run,
                         entity=entity_name,
-                        base_salary=base,
-                        incentive_amount=incentive,
+                        # earnings
+                        basic_salary=basic,
+                        hra=hra,
+                        special_allowance=special,
+                        conveyance_allowance=conveyance,
+                        medical_allowance=medical,
+                        performance_bonus=perf_bonus,
+                        other_allowance=other_allow,
+                        incentive_amount=Decimal('0'),
                         gross_earnings=gross,
+                        # attendance
+                        total_working_days=working_days,
+                        days_present=days_present,
+                        paid_leave_days=paid_leave_days,
+                        weekly_offs=weekly_offs,
+                        public_holidays=public_holidays,
+                        days_paid_for=days_paid_for,
+                        # deductions
                         lop_days=lop_days,
                         lop_deduction=lop_deduction,
                         professional_tax=pt,
                         tds_deduction=tds,
+                        advance_recovery=advance_recovery,
                         other_deductions=Decimal('0'),
                         total_deductions=total_deductions,
                         net_amount=net,
@@ -322,6 +374,13 @@ class PayrollService:
                         sent_at=timezone.now(),
                     ),
                 )
+
+                # post-payroll: increment advance recovery counters
+                for adv in active_advances:
+                    adv.months_recovered += 1
+                    if adv.months_recovered >= adv.proposed_recovery_months:
+                        adv.status = 'recovered'
+                    adv.save()
                 count += 1
                 notify(user=emp, kind='payslip_generated',
                        title='Your salary slip is ready',
@@ -343,8 +402,10 @@ class PayrollService:
 
     @classmethod
     @transaction.atomic
-    def create_compensation_version(cls, employee, effective_from,
-                                    base_salary, incentive, tds, actor=None, request=None):
+    def create_compensation_version(cls, employee, effective_from, basic_salary,
+                                    hra=None, special_allowance=None, conveyance_allowance=None,
+                                    medical_allowance=None, other_allowance=None,
+                                    incentive=None, tds=None, actor=None, request=None):
         """Create new version, auto-close the previous current version the day before."""
         prev = (
             CompensationVersion.objects
@@ -364,9 +425,14 @@ class PayrollService:
             employee=employee,
             effective_from=effective_from,
             effective_to=None,
-            monthly_base_salary=base_salary,
-            monthly_incentive=incentive,
-            monthly_tds=tds,
+            basic_salary=basic_salary,
+            hra=hra or Decimal('0'),
+            special_allowance=special_allowance or Decimal('0'),
+            conveyance_allowance=conveyance_allowance or Decimal('0'),
+            medical_allowance=medical_allowance or Decimal('0'),
+            other_allowance=other_allowance or Decimal('0'),
+            monthly_incentive=incentive or Decimal('0'),
+            monthly_tds=tds or Decimal('0'),
         )
         if actor:
             write_audit(actor=actor, model_name='CompensationVersion', object_id=version.id,
@@ -388,13 +454,20 @@ class IncentiveService:
             employee=inc.employee, month=inc.month, year=inc.year, slip_type='incentive',
             defaults=dict(
                 entity=entity_name,
-                base_salary=Decimal('0'),
+                basic_salary=Decimal('0'),
+                hra=Decimal('0'),
+                special_allowance=Decimal('0'),
+                conveyance_allowance=Decimal('0'),
+                medical_allowance=Decimal('0'),
+                performance_bonus=Decimal('0'),
+                other_allowance=Decimal('0'),
                 incentive_amount=inc.amount,
                 gross_earnings=inc.amount,
                 lop_days=Decimal('0'),
                 lop_deduction=Decimal('0'),
                 professional_tax=Decimal('0'),
                 tds_deduction=Decimal('0'),
+                advance_recovery=Decimal('0'),
                 other_deductions=Decimal('0'),
                 total_deductions=Decimal('0'),
                 net_amount=inc.amount,

@@ -5,7 +5,7 @@ from .models import (
     CompensationVersion, Incentive, PayrollRun,
     WeeklyOffRule, WorkingCalendarEntry, ProfessionalTaxSlab,
 )
-from users.models import Entity
+from users.models import Entity, Department, EmployeeBankAccount
 
 User = get_user_model()
 
@@ -19,6 +19,19 @@ class EntitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Entity
         fields = ['id', 'name', 'code', 'state', 'is_active']
+
+
+class DepartmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Department
+        fields = ['id', 'name', 'entity']
+
+
+class EmployeeBankAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmployeeBankAccount
+        fields = ['id', 'bank_name', 'account_number', 'ifsc_code', 'is_active', 'effective_from']
+        read_only_fields = ['id', 'effective_from']
 
 
 class WeeklyOffRuleSerializer(serializers.ModelSerializer):
@@ -115,7 +128,8 @@ class CompensationVersionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'employee_id', 'employee_name',
             'effective_from', 'effective_to',
-            'monthly_base_salary', 'monthly_incentive', 'monthly_tds',
+            'basic_salary', 'hra', 'special_allowance', 'conveyance_allowance',
+            'medical_allowance', 'other_allowance', 'monthly_incentive', 'monthly_tds',
             'created_at',
         ]
         read_only_fields = ['id', 'employee_name', 'effective_to', 'created_at']
@@ -137,9 +151,16 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
         model = PayrollRecord
         fields = [
             'id', 'employee_id', 'employee_name', 'entity', 'month', 'year', 'slip_type',
-            'base_salary', 'incentive_amount', 'gross_earnings',
+            # earnings
+            'basic_salary', 'hra', 'special_allowance', 'conveyance_allowance',
+            'medical_allowance', 'performance_bonus', 'other_allowance',
+            'incentive_amount', 'gross_earnings',
+            # attendance
+            'total_working_days', 'days_present', 'paid_leave_days',
+            'weekly_offs', 'public_holidays', 'days_paid_for',
+            # deductions
             'lop_days', 'lop_deduction', 'professional_tax', 'tds_deduction',
-            'other_deductions', 'total_deductions',
+            'advance_recovery', 'other_deductions', 'total_deductions',
             'net_amount', 'status', 'generated_at', 'sent_at', 'notes',
         ]
 
@@ -201,6 +222,9 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
     avatar_initials = serializers.CharField(read_only=True)
     entity_id = serializers.PrimaryKeyRelatedField(source='entity', read_only=True)
     entity = serializers.SerializerMethodField()
+    department_id = serializers.PrimaryKeyRelatedField(source='department', read_only=True)
+    department = serializers.SerializerMethodField()
+    active_bank_account = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -208,12 +232,21 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
             'role', 'sub_position', 'manager', 'is_active', 'date_joined',
             'phone_number', 'date_of_joining',
-            'entity_id', 'entity',  # entity = name string for backward compat
-            'current_compensation', 'leave_balance',
+            'entity_id', 'entity',
+            'department_id', 'department',
+            'pan_number', 'uan_number', 'is_pf_applicable',
+            'current_compensation', 'leave_balance', 'active_bank_account',
         ]
 
     def get_entity(self, obj):
         return obj.entity.name if obj.entity_id else None
+
+    def get_department(self, obj):
+        return obj.department.name if obj.department_id else None
+
+    def get_active_bank_account(self, obj):
+        acct = obj.bank_accounts.filter(is_active=True).first()
+        return EmployeeBankAccountSerializer(acct).data if acct else None
 
     def get_current_compensation(self, obj):
         from django.db.models import Q
@@ -231,17 +264,18 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
 class EmployeeUpdateSerializer(serializers.ModelSerializer):
     date_of_joining = serializers.DateField(required=False, allow_null=True)
     entity_id = serializers.PrimaryKeyRelatedField(
-        queryset=Entity.objects.all(),
-        source='entity',
-        allow_null=True,
-        required=False,
+        queryset=Entity.objects.all(), source='entity', allow_null=True, required=False,
+    )
+    department_id = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(), source='department', allow_null=True, required=False,
     )
 
     class Meta:
         model = User
         fields = [
-            'first_name', 'last_name', 'role', 'sub_position', 'entity_id',
+            'first_name', 'last_name', 'role', 'sub_position', 'entity_id', 'department_id',
             'phone_number', 'date_of_joining', 'is_active',
+            'pan_number', 'uan_number', 'is_pf_applicable',
         ]
         extra_kwargs = {
             'first_name': {'required': False},
@@ -250,4 +284,7 @@ class EmployeeUpdateSerializer(serializers.ModelSerializer):
             'sub_position': {'required': False, 'allow_null': True, 'allow_blank': True},
             'phone_number': {'required': False, 'allow_blank': True},
             'is_active': {'required': False},
+            'pan_number': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'uan_number': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'is_pf_applicable': {'required': False},
         }
