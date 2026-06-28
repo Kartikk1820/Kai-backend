@@ -1,3 +1,5 @@
+import datetime
+
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework.views import APIView
@@ -5,24 +7,27 @@ from rest_framework.response import Response
 from rest_framework import status, generics, permissions, filters
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from django.contrib.auth import get_user_model
-import datetime
 
 from core.permissions import HasPermissionKey
 from core.permissions_catalog import (
     HR_MARK_ATTENDANCE, HR_RUN_PAYROLL, HR_MANAGE_COMPENSATION,
     HR_MANAGE_INCENTIVE, HR_VIEW_DIRECTORY, HR_MANAGE_LEAVE_BALANCE,
-    USER_MANAGE_ROLES,
+    USER_MANAGE_ROLES, HR_MANAGE_ENTITY, HR_MANAGE_CALENDAR,
 )
 from core.services import write_audit
 from notifications.services import notify
+from users.models import Entity
 from .models import (
     Attendance, LeaveBalance, LeaveRequest, PayrollRecord, AdvanceSalaryRequest,
-    Compensation, Incentive, PayrollRun,
+    CompensationVersion, Incentive, PayrollRun,
+    WeeklyOffRule, WorkingCalendarEntry, ProfessionalTaxSlab,
 )
 from .serializers import (
     AttendanceSerializer, LeaveBalanceSerializer, LeaveRequestSerializer,
-    PayrollRecordSerializer, AdvanceSalaryRequestSerializer, CompensationSerializer,
+    PayrollRecordSerializer, AdvanceSalaryRequestSerializer, CompensationVersionSerializer,
     EmployeeDetailSerializer, EmployeeUpdateSerializer, IncentiveSerializer, PayrollRunSerializer,
+    EntitySerializer, WeeklyOffRuleSerializer, WorkingCalendarEntrySerializer,
+    ProfessionalTaxSlabSerializer,
 )
 from .services import LeaveService, PayrollService, IncentiveService, can_approve_for
 
@@ -31,6 +36,79 @@ User = get_user_model()
 
 def _is_privileged(user, perm_key):
     return user.role == 'Admin' or user.has_perm_key(perm_key)
+
+
+# ============================ Entity & calendar admin ============================
+
+class EntityListCreateView(generics.ListCreateAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_ENTITY)]
+    serializer_class = EntitySerializer
+    queryset = Entity.objects.all()
+
+
+class EntityDetailView(generics.RetrieveUpdateAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_ENTITY)]
+    serializer_class = EntitySerializer
+    queryset = Entity.objects.all()
+    http_method_names = ['get', 'patch']
+
+
+class WeeklyOffRuleListCreateView(generics.ListCreateAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_ENTITY)]
+    serializer_class = WeeklyOffRuleSerializer
+
+    def get_queryset(self):
+        qs = WeeklyOffRule.objects.select_related('entity')
+        if self.request.query_params.get('entity_id'):
+            qs = qs.filter(entity_id=self.request.query_params['entity_id'])
+        return qs
+
+
+class WeeklyOffRuleDetailView(generics.DestroyAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_ENTITY)]
+    serializer_class = WeeklyOffRuleSerializer
+    queryset = WeeklyOffRule.objects.all()
+
+
+class WorkingCalendarEntryListCreateView(generics.ListCreateAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_CALENDAR)]
+    serializer_class = WorkingCalendarEntrySerializer
+
+    def get_queryset(self):
+        qs = WorkingCalendarEntry.objects.select_related('entity')
+        p = self.request.query_params
+        if p.get('entity_id'):
+            qs = qs.filter(entity_id=p['entity_id'])
+        if p.get('year'):
+            qs = qs.filter(date__year=p['year'])
+        if p.get('month'):
+            qs = qs.filter(date__month=p['month'])
+        return qs
+
+
+class WorkingCalendarEntryDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_CALENDAR)]
+    serializer_class = WorkingCalendarEntrySerializer
+    queryset = WorkingCalendarEntry.objects.all()
+    http_method_names = ['get', 'patch', 'delete']
+
+
+class ProfessionalTaxSlabListCreateView(generics.ListCreateAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_ENTITY)]
+    serializer_class = ProfessionalTaxSlabSerializer
+
+    def get_queryset(self):
+        qs = ProfessionalTaxSlab.objects.select_related('entity')
+        if self.request.query_params.get('entity_id'):
+            qs = qs.filter(entity_id=self.request.query_params['entity_id'])
+        return qs
+
+
+class ProfessionalTaxSlabDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_ENTITY)]
+    serializer_class = ProfessionalTaxSlabSerializer
+    queryset = ProfessionalTaxSlab.objects.all()
+    http_method_names = ['get', 'patch', 'delete']
 
 
 # ============================ Attendance ============================
@@ -43,29 +121,27 @@ class AttendanceStatusView(APIView):
         today = timezone.localtime().date()
         att = Attendance.objects.filter(employee=request.user, date=today).first()
         active_session = att.sessions.filter(clock_out_time__isnull=True).first() if att else None
-        
+
         is_clocked_in = active_session is not None
         clock_in_time = active_session.clock_in_time.strftime('%H:%M:%S') if active_session else None
-        
+
         previously_worked_hours = 0.0
         if att:
-            from datetime import datetime
             total_seconds = 0
             for session in att.sessions.filter(clock_out_time__isnull=False):
-                base = datetime.combine(att.date, session.clock_in_time)
-                out = datetime.combine(att.date, session.clock_out_time)
+                base = datetime.datetime.combine(att.date, session.clock_in_time)
+                out = datetime.datetime.combine(att.date, session.clock_out_time)
                 if out < base:
-                    from datetime import timedelta
-                    out += timedelta(days=1)
+                    out += datetime.timedelta(days=1)
                 total_seconds += (out - base).total_seconds()
             previously_worked_hours = round(total_seconds / 3600, 2)
-        
+
         return Response({
             'is_clocked_in': is_clocked_in,
             'clock_in_time': clock_in_time,
             'today_date': today.strftime('%Y-%m-%d'),
             'working_hours_so_far': att.working_hours if att else 0.0,
-            'previously_worked_hours': previously_worked_hours
+            'previously_worked_hours': previously_worked_hours,
         })
 
 
@@ -77,28 +153,38 @@ class ClockInView(APIView):
         today = timezone.localtime().date()
         now_time = timezone.localtime().time()
         att, created = Attendance.objects.get_or_create(
-            employee=request.user, date=today, defaults={'status': 'present'})
-            
+            employee=request.user, date=today,
+            defaults={'status': 'present', 'source': 'clock_in'},
+        )
+        if not created and att.source != 'clock_in':
+            # Preserve existing status (e.g. holiday/weekly_off set by calendar seed),
+            # but still allow clocking in — mark source as clock_in override.
+            att.status = 'present'
+            att.source = 'clock_in'
+            att.save()
+
         if att.sessions.filter(clock_out_time__isnull=True).exists():
             return Response({'error': 'Already clocked in'}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         from .models import AttendanceSession
         session = AttendanceSession.objects.create(attendance=att, clock_in_time=now_time)
-        att.status = 'present'
-        att.save()
-        
+
         try:
             from .tasks import notify_eight_hours_reached
             worked = att.working_hours
             remaining = 8.0 - worked
             if remaining > 0:
-                notify_eight_hours_reached.apply_async((request.user.id, str(today)), countdown=int(remaining * 3600))
+                notify_eight_hours_reached.apply_async(
+                    (request.user.id, str(today)), countdown=int(remaining * 3600)
+                )
         except Exception as e:
             import logging
             logging.error(f"Failed to schedule 8hr notification: {e}")
-            
-        return Response({'message': 'Clocked in', 'clock_in_time': session.clock_in_time.strftime('%H:%M:%S')},
-                        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+        return Response(
+            {'message': 'Clocked in', 'clock_in_time': session.clock_in_time.strftime('%H:%M:%S')},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 class ClockOutView(APIView):
@@ -109,20 +195,20 @@ class ClockOutView(APIView):
         today = timezone.localtime().date()
         now_time = timezone.localtime().time()
         att = Attendance.objects.filter(employee=request.user, date=today).first()
-        
         if not att:
             return Response({'error': "You haven't clocked in yet"}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         active_session = att.sessions.filter(clock_out_time__isnull=True).first()
         if not active_session:
             return Response({'error': 'Already clocked out'}, status=status.HTTP_400_BAD_REQUEST)
-            
+
         active_session.clock_out_time = now_time
         active_session.save()
-        
-        return Response({'message': 'Clocked out',
-                         'clock_out_time': active_session.clock_out_time.strftime('%H:%M:%S'),
-                         'working_hours': att.working_hours})
+        return Response({
+            'message': 'Clocked out',
+            'clock_out_time': active_session.clock_out_time.strftime('%H:%M:%S'),
+            'working_hours': att.working_hours,
+        })
 
 
 @extend_schema_view(get=extend_schema(summary="Attendance records"))
@@ -131,7 +217,7 @@ class AttendanceRecordsView(generics.ListAPIView):
     serializer_class = AttendanceSerializer
 
     def get_queryset(self):
-        qs = Attendance.objects.select_related('employee').order_by('-date')
+        qs = Attendance.objects.select_related('employee').prefetch_related('sessions').order_by('-date')
         user = self.request.user
         if not _is_privileged(user, 'hr.view_attendance_all'):
             qs = qs.filter(employee=user)
@@ -156,18 +242,19 @@ class MarkAttendanceView(APIView):
     @extend_schema(summary="Mark / correct attendance (privileged)")
     def post(self, request):
         data = request.data
-        emp_id, date = data.get('employee_id'), data.get('date')
-        if not emp_id or not date:
+        emp_id, date_str = data.get('employee_id'), data.get('date')
+        if not emp_id or not date_str:
             return Response({'error': 'employee_id and date are required'}, status=400)
-        att, _ = Attendance.objects.get_or_create(employee_id=emp_id, date=date)
+        att, _ = Attendance.objects.get_or_create(employee_id=emp_id, date=date_str)
         att.status = data.get('status', att.status)
-        
+        att.source = 'admin_override'
+        att.is_half_day = data.get('is_half_day', att.is_half_day)
+
         in_time_str = data.get('clock_in_time')
         out_time_str = data.get('clock_out_time')
-        
+
         if in_time_str or out_time_str:
             from .models import AttendanceSession
-            # If admin marks time manually, we'll replace the sessions with a single explicit one.
             att.sessions.all().delete()
             session = AttendanceSession(attendance=att)
             if in_time_str:
@@ -176,17 +263,15 @@ class MarkAttendanceView(APIView):
                 except ValueError:
                     return Response({'error': 'Invalid clock_in_time. Use HH:MM:SS'}, status=400)
             else:
-                session.clock_in_time = datetime.time(9, 0, 0) # default fallback if only out provided
-                
+                session.clock_in_time = datetime.time(9, 0, 0)
             if out_time_str:
                 try:
                     session.clock_out_time = datetime.datetime.strptime(out_time_str, '%H:%M:%S').time()
                 except ValueError:
                     return Response({'error': 'Invalid clock_out_time. Use HH:MM:SS'}, status=400)
             session.save()
-            
+
         att.notes = data.get('notes', att.notes)
-        att.marked_by_admin = True
         att.save()
         write_audit(actor=request.user, model_name='Attendance', object_id=att.id,
                     action='marked', new_state=att.status, request=request)
@@ -230,7 +315,6 @@ class LeaveRequestListView(generics.ListAPIView):
         qs = LeaveRequest.objects.select_related('employee')
         user = self.request.user
         if not _is_privileged(user, 'hr.view_leave_all'):
-            # Allow seeing own requests OR requests of direct reports
             qs = qs.filter(Q(employee=user) | Q(employee__manager=user)).distinct()
         else:
             emp = self.request.query_params.get('employee_id')
@@ -253,7 +337,6 @@ class LeaveRequestCreateView(generics.CreateAPIView):
 
     def perform_create(self, serializer):
         leave = serializer.save(employee=self.request.user, status='pending')
-        # notify approver (manager) that a request was submitted
         if self.request.user.manager_id:
             notify(user=self.request.user.manager, kind='leave_submitted',
                    title='Leave request submitted',
@@ -279,20 +362,62 @@ class LeaveRequestStatusUpdateView(APIView):
         return Response(LeaveRequestSerializer(leave).data)
 
 
-# ============================ Payroll & Compensation ============================
+# ============================ Compensation (versioned) ============================
 
-class CompensationListView(generics.ListCreateAPIView):
+class CompensationVersionListCreateView(generics.ListCreateAPIView):
     permission_classes = [HasPermissionKey.of(HR_MANAGE_COMPENSATION)]
-    serializer_class = CompensationSerializer
-    queryset = Compensation.objects.select_related('employee').all()
+    serializer_class = CompensationVersionSerializer
+
+    def get_queryset(self):
+        qs = CompensationVersion.objects.select_related('employee')
+        if self.request.query_params.get('employee_id'):
+            qs = qs.filter(employee_id=self.request.query_params['employee_id'])
+        return qs
+
+    def perform_create(self, serializer):
+        data = serializer.validated_data
+        PayrollService.create_compensation_version(
+            employee=data['employee'],
+            effective_from=data['effective_from'],
+            base_salary=data['monthly_base_salary'],
+            incentive=data.get('monthly_incentive', 0),
+            tds=data.get('monthly_tds', 0),
+            actor=self.request.user,
+            request=self.request,
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        emp_id = serializer.validated_data['employee'].id
+        version = (
+            CompensationVersion.objects
+            .filter(employee_id=emp_id, effective_to__isnull=True)
+            .order_by('-effective_from')
+            .first()
+        )
+        return Response(CompensationVersionSerializer(version).data, status=status.HTTP_201_CREATED)
 
 
-class CompensationDetailView(generics.RetrieveUpdateAPIView):
+class CompensationVersionDetailView(generics.RetrieveUpdateAPIView):
     permission_classes = [HasPermissionKey.of(HR_MANAGE_COMPENSATION)]
-    serializer_class = CompensationSerializer
-    queryset = Compensation.objects.all()
+    serializer_class = CompensationVersionSerializer
+    queryset = CompensationVersion.objects.all()
     http_method_names = ['get', 'patch']
 
+    def patch(self, request, *args, **kwargs):
+        instance = self.get_object()
+        allowed = {'monthly_base_salary', 'monthly_incentive', 'monthly_tds'}
+        for field in set(request.data.keys()) - allowed:
+            return Response(
+                {'error': f'Cannot update {field} on existing version. Create a new version instead.'},
+                status=400,
+            )
+        return super().partial_update(request, *args, **kwargs)
+
+
+# ============================ Payroll ============================
 
 @extend_schema_view(get=extend_schema(summary="List payroll slips"))
 class PayrollRecordListView(generics.ListAPIView):
@@ -341,8 +466,7 @@ class PayrollRunView(APIView):
     def post(self, request):
         month, year = request.data.get('month'), request.data.get('year')
         if not month or not year:
-            return Response({'error': 'Month and year are required'}, status=400)
-        # Run via Celery in production; run inline if eager/not configured.
+            return Response({'error': 'month and year are required'}, status=400)
         run = PayrollService.run_salary(int(month), int(year), user=request.user, request=request)
         return Response(PayrollRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
 
@@ -428,7 +552,6 @@ class IncentiveSendAllView(APIView):
 # ============================ Directory ============================
 
 class EmployeePresenceView(APIView):
-    """Returns today's clock-in presence per employee: { "<user_id>": "present" | "offline" }"""
     permission_classes = [HasPermissionKey.of(HR_VIEW_DIRECTORY)]
 
     def get(self, request):
@@ -448,14 +571,14 @@ class EmployeePresenceView(APIView):
 class EmployeeListView(generics.ListAPIView):
     permission_classes = [HasPermissionKey.of(HR_VIEW_DIRECTORY)]
     serializer_class = EmployeeDetailSerializer
-    queryset = User.objects.exclude(role='Client')
+    queryset = User.objects.exclude(role='Client').select_related('entity')
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['first_name', 'last_name', 'email', 'sub_position']
     ordering = ['id']
 
 
 class EmployeeDetailView(generics.RetrieveUpdateAPIView):
-    queryset = User.objects.exclude(role='Client')
+    queryset = User.objects.exclude(role='Client').select_related('entity')
 
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH'):

@@ -200,6 +200,12 @@ CELERY_TIMEZONE = TIME_ZONE
 # Beat schedule: salary on the 1st, incentives on the 15th
 from celery.schedules import crontab  # noqa: E402
 CELERY_BEAT_SCHEDULE = {
+    # 1st of month 00:30 — seed holiday/weekly-off rows for the new month
+    'seed-monthly-calendar': {
+        'task': 'hrms.tasks.seed_monthly_calendar',
+        'schedule': crontab(day_of_month='1', hour=0, minute=30),
+    },
+    # 1st of month 02:00 — run salary for the previous month (after calendar is seeded)
     'run-monthly-salary': {
         'task': 'hrms.tasks.run_monthly_salary',
         'schedule': crontab(day_of_month='1', hour=2, minute=0),

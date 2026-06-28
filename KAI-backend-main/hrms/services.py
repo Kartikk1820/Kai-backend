@@ -1,7 +1,8 @@
-"""HRMS service layer: leave approval (atomic), payroll & incentive generation."""
+"""HRMS service layer: attendance seeding, leave approval, payroll generation."""
+import calendar
 from datetime import timedelta, date
-from decimal import Decimal
-from django.db import transaction
+from decimal import Decimal, ROUND_HALF_UP
+from django.db import models, transaction
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
@@ -9,16 +10,123 @@ from core.services import write_audit
 from core.permissions_catalog import HR_APPROVE_LEAVE
 from notifications.services import notify
 from .models import (
-    LeaveRequest, LeaveBalance, Attendance, Compensation, PayrollRecord,
-    PayrollRun, Incentive,
+    LeaveRequest, LeaveBalance, Attendance, CompensationVersion, PayrollRecord,
+    PayrollRun, Incentive, WeeklyOffRule, WorkingCalendarEntry, ProfessionalTaxSlab,
 )
+
+# Maps LeaveRequest.leave_type → Attendance.status
+LEAVE_TYPE_TO_STATUS = {
+    'sick': 'sick_leave',
+    'casual': 'casual_leave',
+    'earned': 'earned_leave',
+    'unpaid': 'lop',
+}
+
+# Statuses that count as LOP days in payroll
+LOP_STATUSES = ('lop', 'absent')
 
 
 def can_approve_for(user, employee):
-    """Admin/HR (permission) OR the employee's direct manager."""
+    """Admin/HR (permission) OR employee's direct manager."""
     if user.role == 'Admin' or user.has_perm_key(HR_APPROVE_LEAVE):
         return True
     return employee.manager_id == user.id
+
+
+def _working_days_in_month(month, year, entity):
+    """Calendar days minus weekly-offs (from WeeklyOffRule) minus public holidays.
+    Falls back to Sat+Sun off when entity is None or has no WeeklyOffRule configured."""
+    if entity:
+        off_weekdays = set(
+            WeeklyOffRule.objects.filter(entity=entity).values_list('weekday', flat=True)
+        )
+        if not off_weekdays:
+            off_weekdays = {5, 6}  # sensible default if entity has no rules yet
+        holiday_dates = set(
+            WorkingCalendarEntry.objects.filter(
+                entity=entity, entry_type='holiday',
+                date__year=year, date__month=month,
+            ).values_list('date', flat=True)
+        )
+    else:
+        off_weekdays = {5, 6}
+        holiday_dates = set()
+
+    days_in_month = calendar.monthrange(year, month)[1]
+    working = 0
+    for day in range(1, days_in_month + 1):
+        d = date(year, month, day)
+        if d.weekday() not in off_weekdays and d not in holiday_dates:
+            working += 1
+    return working
+
+
+def _get_professional_tax(entity, gross, month_start):
+    """Look up monthly PT for gross salary against entity's current slab table."""
+    slab = (
+        ProfessionalTaxSlab.objects
+        .filter(
+            entity=entity,
+            effective_from__lte=month_start,
+            income_from__lte=gross,
+        )
+        .filter(models.Q(income_to__isnull=True) | models.Q(income_to__gte=gross))
+        .order_by('-effective_from', 'income_from')
+        .first()
+    )
+    return slab.monthly_tax if slab else Decimal('0')
+
+
+class AttendanceService:
+
+    @staticmethod
+    @transaction.atomic
+    def seed_calendar(month, year):
+        """
+        Pre-create Attendance rows for holidays and weekly-offs for all active employees.
+        Holidays take precedence over weekly-offs on the same date.
+        Never overwrites an existing row — uses get_or_create so clock-in rows survive.
+        """
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        from users.models import Entity
+        for entity in Entity.objects.filter(is_active=True):
+            employees = list(
+                User.objects.filter(entity=entity, is_active=True)
+                .exclude(role='Client')
+            )
+            if not employees:
+                continue
+
+            # Build per-date intent: holiday > weekly_off
+            off_weekdays = set(
+                WeeklyOffRule.objects.filter(entity=entity).values_list('weekday', flat=True)
+            )
+            holiday_map = {
+                entry.date: entry.name
+                for entry in WorkingCalendarEntry.objects.filter(
+                    entity=entity, date__year=year, date__month=month,
+                )
+            }
+
+            days_in_month = calendar.monthrange(year, month)[1]
+            for day in range(1, days_in_month + 1):
+                d = date(year, month, day)
+
+                if d in holiday_map:
+                    att_status = 'holiday'
+                elif d.weekday() in off_weekdays:
+                    att_status = 'weekly_off'
+                else:
+                    continue  # working day — no pre-seeded row needed
+
+                for emp in employees:
+                    Attendance.objects.get_or_create(
+                        employee=emp,
+                        date=d,
+                        defaults={'status': att_status, 'source': 'holiday_calendar'},
+                    )
 
 
 class LeaveService:
@@ -37,19 +145,25 @@ class LeaveService:
         leave.reviewed_on = timezone.now()
         leave.save()
 
-        # Decrement balance
         balance, _ = LeaveBalance.objects.select_for_update().get_or_create(employee=leave.employee)
         field = balance.bucket_field(leave.leave_type)
         if field:
             setattr(balance, field, getattr(balance, field) + leave.total_days)
             balance.save()
 
-        # Write attendance rows across the date range as 'leave'
+        att_status = LEAVE_TYPE_TO_STATUS.get(leave.leave_type, 'lop')
+        is_single_day = (leave.from_date == leave.to_date)
+        is_half = (leave.total_days == Decimal('0.5') and is_single_day)
+
         d = leave.from_date
         while d <= leave.to_date:
             Attendance.objects.update_or_create(
                 employee=leave.employee, date=d,
-                defaults={'status': 'leave', 'marked_by_admin': True},
+                defaults={
+                    'status': att_status,
+                    'source': 'leave_approval',
+                    'is_half_day': is_half,
+                },
             )
             d += timedelta(days=1)
 
@@ -105,23 +219,107 @@ class PayrollService:
         run = PayrollRun.objects.create(run_type='salary', month=month, year=year,
                                         triggered_by=user, status='running')
         count, errors = 0, []
+        month_start = date(year, month, 1)
+        month_end = date(year, month, calendar.monthrange(year, month)[1])
+
         paid_roles = ['Admin', 'Manager', 'Employee']
-        comps = Compensation.objects.select_related('employee').filter(
-            employee__is_active=True,
-            employee__role__in=paid_roles,
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        employees = list(
+            User.objects.filter(is_active=True, role__in=paid_roles)
+            .select_related('entity')
         )
-        for comp in comps:
-            emp = comp.employee
-            base = comp.monthly_base_salary or Decimal('0')
-            incentive = comp.monthly_incentive or Decimal('0')
-            net = base + incentive
+
+        for emp in employees:
             try:
+                # --- find effective compensation version ---
+                comp = (
+                    CompensationVersion.objects
+                    .filter(
+                        employee=emp,
+                        effective_from__lte=month_start,
+                    )
+                    .filter(
+                        models.Q(effective_to__isnull=True) | models.Q(effective_to__gte=month_end)
+                    )
+                    .order_by('-effective_from')
+                    .first()
+                )
+                if not comp:
+                    errors.append({
+                        'employee': emp.id,
+                        'error': 'No compensation version effective for this period.',
+                    })
+                    continue
+
+                # --- gate on unmarked attendance ---
+                unmarked_count = Attendance.objects.filter(
+                    employee=emp, date__year=year, date__month=month, status='unmarked',
+                ).count()
+                if unmarked_count:
+                    errors.append({
+                        'employee': emp.id,
+                        'error': f'{unmarked_count} unmarked attendance day(s) in period. Resolve before running payroll.',
+                    })
+                    continue
+
+                # --- LOP calculation ---
+                lop_rows = Attendance.objects.filter(
+                    employee=emp, date__year=year, date__month=month,
+                    status__in=LOP_STATUSES,
+                )
+                lop_days = sum(
+                    Decimal('0.5') if row.is_half_day else Decimal('1')
+                    for row in lop_rows
+                )
+
+                base = comp.monthly_base_salary or Decimal('0')
+                incentive = comp.monthly_incentive or Decimal('0')
+                gross = base + incentive
+
+                entity = emp.entity
+                working_days = _working_days_in_month(month, year, entity)
+
+                if working_days and lop_days:
+                    per_day_rate = (base / Decimal(working_days)).quantize(
+                        Decimal('0.01'), rounding=ROUND_HALF_UP
+                    )
+                    lop_deduction = (lop_days * per_day_rate).quantize(
+                        Decimal('0.01'), rounding=ROUND_HALF_UP
+                    )
+                else:
+                    lop_deduction = Decimal('0')
+
+                # --- PT lookup ---
+                pt = _get_professional_tax(entity, gross, month_start) if entity else Decimal('0')
+
+                # --- TDS from compensation snapshot ---
+                tds = comp.monthly_tds or Decimal('0')
+
+                total_deductions = (lop_deduction + pt + tds).quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                net = (gross - total_deductions).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+                entity_name = entity.name if entity else ''
+
                 PayrollRecord.objects.update_or_create(
                     employee=emp, month=month, year=year, slip_type='salary',
                     defaults=dict(
-                        run=run, entity=emp.entity or '', base_salary=base,
-                        incentive_amount=incentive, net_amount=net,
-                        status='sent', sent_at=timezone.now(),
+                        run=run,
+                        entity=entity_name,
+                        base_salary=base,
+                        incentive_amount=incentive,
+                        gross_earnings=gross,
+                        lop_days=lop_days,
+                        lop_deduction=lop_deduction,
+                        professional_tax=pt,
+                        tds_deduction=tds,
+                        other_deductions=Decimal('0'),
+                        total_deductions=total_deductions,
+                        net_amount=net,
+                        status='sent',
+                        sent_at=timezone.now(),
                     ),
                 )
                 count += 1
@@ -134,14 +332,48 @@ class PayrollService:
 
         run.records_generated = count
         run.errors = errors
-        run.status = 'completed' if not errors else 'partial'
+        run.status = 'completed' if not errors else ('partial' if count else 'failed')
         run.completed_at = timezone.now()
         run.save()
         if user:
-            write_audit(actor=user, actor_system=None, model_name='PayrollRun', object_id=run.id,
+            write_audit(actor=user, model_name='PayrollRun', object_id=run.id,
                         action='run', new_state=run.status, request=request,
-                        context={'count': count})
+                        context={'count': count, 'errors': len(errors)})
         return run
+
+    @classmethod
+    @transaction.atomic
+    def create_compensation_version(cls, employee, effective_from,
+                                    base_salary, incentive, tds, actor=None, request=None):
+        """Create new version, auto-close the previous current version the day before."""
+        prev = (
+            CompensationVersion.objects
+            .filter(employee=employee, effective_to__isnull=True)
+            .order_by('-effective_from')
+            .first()
+        )
+        if prev:
+            if prev.effective_from >= effective_from:
+                raise ValidationError({
+                    'effective_from': 'New version must be later than the current active version.'
+                })
+            prev.effective_to = effective_from - timedelta(days=1)
+            prev.save()
+
+        version = CompensationVersion.objects.create(
+            employee=employee,
+            effective_from=effective_from,
+            effective_to=None,
+            monthly_base_salary=base_salary,
+            monthly_incentive=incentive,
+            monthly_tds=tds,
+        )
+        if actor:
+            write_audit(actor=actor, model_name='CompensationVersion', object_id=version.id,
+                        action='created', new_state='active', request=request,
+                        context={'effective_from': str(effective_from)})
+        return version
+
 
 class IncentiveService:
 
@@ -151,11 +383,24 @@ class IncentiveService:
         inc = Incentive.objects.select_for_update().get(id=incentive_id)
         if inc.status == 'sent':
             return inc
+        entity_name = inc.employee.entity.name if inc.employee.entity_id else ''
         rec, _ = PayrollRecord.objects.update_or_create(
             employee=inc.employee, month=inc.month, year=inc.year, slip_type='incentive',
-            defaults=dict(entity=inc.employee.entity or '', base_salary=Decimal('0'),
-                          incentive_amount=inc.amount, net_amount=inc.amount,
-                          status='sent', sent_at=timezone.now()),
+            defaults=dict(
+                entity=entity_name,
+                base_salary=Decimal('0'),
+                incentive_amount=inc.amount,
+                gross_earnings=inc.amount,
+                lop_days=Decimal('0'),
+                lop_deduction=Decimal('0'),
+                professional_tax=Decimal('0'),
+                tds_deduction=Decimal('0'),
+                other_deductions=Decimal('0'),
+                total_deductions=Decimal('0'),
+                net_amount=inc.amount,
+                status='sent',
+                sent_at=timezone.now(),
+            ),
         )
         inc.status = 'sent'
         inc.sent_at = timezone.now()

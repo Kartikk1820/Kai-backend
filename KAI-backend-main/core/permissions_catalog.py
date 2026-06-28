@@ -34,6 +34,10 @@ HR_MANAGE_INCENTIVE = 'hr.manage_incentive'
 # Directory
 HR_VIEW_DIRECTORY = 'hr.view_directory'
 
+# Entity & calendar admin
+HR_MANAGE_ENTITY = 'hr.manage_entity'      # Entity, WeeklyOffRule, PT slabs
+HR_MANAGE_CALENDAR = 'hr.manage_calendar'  # WorkingCalendarEntry (public holidays)
+
 # Admin / RBAC
 USER_CREATE = 'user.create'
 USER_MANAGE_ROLES = 'user.manage_roles'
@@ -72,6 +76,10 @@ CATALOG = {
     'Directory': [
         (HR_VIEW_DIRECTORY, 'View employee directory'),
     ],
+    'Entity & Calendar': [
+        (HR_MANAGE_ENTITY, 'Manage entities, weekly-off rules, PT slabs'),
+        (HR_MANAGE_CALENDAR, 'Manage public holiday calendar'),
+    ],
     'Admin': [
         (USER_CREATE, 'Create users'),
         (USER_MANAGE_ROLES, 'Assign roles & permissions'),
@@ -97,7 +105,7 @@ ROLE_BUNDLES = {
         HR_VIEW_ATTENDANCE_ALL, HR_MARK_ATTENDANCE, HR_VIEW_LEAVE_ALL,
         HR_APPROVE_LEAVE, HR_MANAGE_LEAVE_BALANCE, HR_VIEW_PAYROLL_ALL,
         HR_MANAGE_COMPENSATION, HR_RUN_PAYROLL, HR_MANAGE_INCENTIVE,
-        HR_VIEW_DIRECTORY,
+        HR_VIEW_DIRECTORY, HR_MANAGE_CALENDAR,
     ],
     'Admin': list(ALL_KEYS),
 }

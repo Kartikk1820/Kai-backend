@@ -3,9 +3,21 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 
-class CustomUserManager(BaseUserManager):
-    """Email is the unique identifier for authentication instead of username."""
+class Entity(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    code = models.CharField(max_length=20, unique=True)
+    state = models.CharField(max_length=100, blank=True)
+    is_active = models.BooleanField(default=True)
 
+    class Meta:
+        ordering = ['name']
+        verbose_name_plural = 'entities'
+
+    def __str__(self):
+        return f"{self.code} — {self.name}"
+
+
+class CustomUserManager(BaseUserManager):
     use_in_migrations = True
 
     def create_user(self, email, password=None, **extra_fields):
@@ -50,18 +62,18 @@ class User(AbstractUser):
 
     phone_number = models.CharField(max_length=20, null=True, blank=True)
     date_of_joining = models.DateField(null=True, blank=True)
-    entity = models.CharField(max_length=100, null=True, blank=True)
+    entity = models.ForeignKey(
+        Entity, null=True, blank=True, on_delete=models.SET_NULL, related_name='employees'
+    )
 
-    # Forced one-time password change after admin creates/resets the account.
     must_change_password = models.BooleanField(default=True)
 
     state = models.CharField(max_length=100, null=True, blank=True)
     present_location = models.CharField(max_length=255, null=True, blank=True)
     job_id = models.CharField(max_length=100, null=True, blank=True)
 
-    # Per-user permission overrides on top of group permissions.
-    extra_permissions = models.JSONField(default=list, blank=True)   # granted keys
-    revoked_permissions = models.JSONField(default=list, blank=True)  # revoked keys
+    extra_permissions = models.JSONField(default=list, blank=True)
+    revoked_permissions = models.JSONField(default=list, blank=True)
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
@@ -85,10 +97,7 @@ class User(AbstractUser):
             return f"{self.first_name[0]}{self.last_name[0]}".upper()
         return (self.email[:2].upper() if self.email else '??')
 
-    # ----- RBAC -----
     def effective_permissions(self):
-        """Union of group permission keys + direct grants, minus revokes.
-        Admins implicitly hold every catalog key."""
         from core.permissions_catalog import ALL_KEYS
         if self.is_superuser or self.role == 'Admin':
             return set(ALL_KEYS)
@@ -104,7 +113,6 @@ class User(AbstractUser):
 
 
 class Position(models.Model):
-    """Named position (e.g. "Proposal Writer") that bundles one or more RBAC roles."""
     name = models.CharField(max_length=100, unique=True)
     description = models.CharField(max_length=255, blank=True, default='')
     role_ids = models.JSONField(default=list, blank=True)

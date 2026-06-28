@@ -1,15 +1,36 @@
 from django.urls import path
 from .views import (
+    # Entity & calendar
+    EntityListCreateView, EntityDetailView,
+    WeeklyOffRuleListCreateView, WeeklyOffRuleDetailView,
+    WorkingCalendarEntryListCreateView, WorkingCalendarEntryDetailView,
+    ProfessionalTaxSlabListCreateView, ProfessionalTaxSlabDetailView,
+    # Attendance
     AttendanceStatusView, ClockInView, ClockOutView, AttendanceRecordsView, MarkAttendanceView,
+    # Leave
     LeaveBalanceView, LeaveRequestListView, LeaveRequestCreateView, LeaveRequestStatusUpdateView,
-    CompensationListView, CompensationDetailView,
+    # Payroll & compensation
+    CompensationVersionListCreateView, CompensationVersionDetailView,
     PayrollRecordListView, PayrollSlipDownloadView, PayrollRunView,
+    # Incentives
     IncentiveListCreateView, IncentiveDetailView, IncentiveSendNowView, IncentiveSendAllView,
+    # Advances
     AdvanceSalaryListView, AdvanceSalaryCreateView, AdvanceSalaryStatusUpdateView,
+    # Directory
     EmployeeListView, EmployeeDetailView, EmployeePresenceView,
 )
 
 urlpatterns = [
+    # Entity & calendar admin
+    path('entities/', EntityListCreateView.as_view()),
+    path('entities/<int:pk>/', EntityDetailView.as_view()),
+    path('entities/weekly-off-rules/', WeeklyOffRuleListCreateView.as_view()),
+    path('entities/weekly-off-rules/<int:pk>/', WeeklyOffRuleDetailView.as_view()),
+    path('entities/calendar/', WorkingCalendarEntryListCreateView.as_view()),
+    path('entities/calendar/<int:pk>/', WorkingCalendarEntryDetailView.as_view()),
+    path('entities/pt-slabs/', ProfessionalTaxSlabListCreateView.as_view()),
+    path('entities/pt-slabs/<int:pk>/', ProfessionalTaxSlabDetailView.as_view()),
+
     # Attendance
     path('attendance/status/', AttendanceStatusView.as_view()),
     path('attendance/clock-in/', ClockInView.as_view()),
@@ -24,8 +45,8 @@ urlpatterns = [
     path('leave/requests/<int:pk>/status/', LeaveRequestStatusUpdateView.as_view()),
 
     # Payroll & compensation
-    path('payroll/compensation/', CompensationListView.as_view()),
-    path('payroll/compensation/<int:pk>/', CompensationDetailView.as_view()),
+    path('payroll/compensation/', CompensationVersionListCreateView.as_view()),
+    path('payroll/compensation/<int:pk>/', CompensationVersionDetailView.as_view()),
     path('payroll/slips/', PayrollRecordListView.as_view()),
     path('payroll/slips/<int:pk>/download/', PayrollSlipDownloadView.as_view()),
     path('payroll/run/', PayrollRunView.as_view()),

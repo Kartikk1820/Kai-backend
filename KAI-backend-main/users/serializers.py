@@ -4,7 +4,7 @@ from django.utils.crypto import get_random_string
 from django.contrib.auth.password_validation import validate_password
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from core.models import Role, UserRole
-from .models import Position
+from .models import Position, Entity
 
 User = get_user_model()
 
@@ -42,15 +42,21 @@ class MeSerializer(serializers.ModelSerializer):
     permissions = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
     is_manager = serializers.SerializerMethodField()
+    # entity = name string (backward compat); entity_id = FK integer
+    entity = serializers.SerializerMethodField()
+    entity_id = serializers.PrimaryKeyRelatedField(source='entity', read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
-            'role', 'sub_position', 'entity', 'manager', 'phone_number',
+            'role', 'sub_position', 'entity', 'entity_id', 'manager', 'phone_number',
             'must_change_password', 'is_manager', 'permissions', 'roles',
             'state', 'present_location', 'job_id',
         ]
+
+    def get_entity(self, obj):
+        return obj.entity.name if obj.entity_id else None
 
     def get_permissions(self, obj):
         return sorted(obj.effective_permissions())
@@ -76,16 +82,25 @@ class AdminUserSerializer(serializers.ModelSerializer):
     )
     roles = serializers.SerializerMethodField()
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    # entity = name string (backward compat read); entity_id = FK write/read
+    entity = serializers.SerializerMethodField()
+    entity_id = serializers.PrimaryKeyRelatedField(
+        queryset=Entity.objects.all(), source='entity',
+        allow_null=True, required=False,
+    )
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 'full_name', 'role',
-            'sub_position', 'manager', 'entity', 'phone_number', 'date_of_joining',
+            'sub_position', 'manager', 'entity', 'entity_id', 'phone_number', 'date_of_joining',
             'is_active', 'must_change_password', 'password', 'role_ids', 'roles',
             'state', 'present_location', 'job_id',
         ]
         read_only_fields = ['must_change_password']
+
+    def get_entity(self, obj):
+        return obj.entity.name if obj.entity_id else None
 
     def get_roles(self, obj):
         return list(obj.user_roles.values_list('role__name', flat=True))

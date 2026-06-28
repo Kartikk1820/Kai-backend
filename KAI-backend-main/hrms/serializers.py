@@ -2,8 +2,10 @@ from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import (
     Attendance, LeaveBalance, LeaveRequest, PayrollRecord, AdvanceSalaryRequest,
-    Compensation, Incentive, PayrollRun,
+    CompensationVersion, Incentive, PayrollRun,
+    WeeklyOffRule, WorkingCalendarEntry, ProfessionalTaxSlab,
 )
+from users.models import Entity
 
 User = get_user_model()
 
@@ -11,6 +13,32 @@ User = get_user_model()
 def _emp_name(obj):
     name = f"{obj.employee.first_name} {obj.employee.last_name}".strip()
     return name or obj.employee.email
+
+
+class EntitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Entity
+        fields = ['id', 'name', 'code', 'state', 'is_active']
+
+
+class WeeklyOffRuleSerializer(serializers.ModelSerializer):
+    weekday_display = serializers.CharField(source='get_weekday_display', read_only=True)
+
+    class Meta:
+        model = WeeklyOffRule
+        fields = ['id', 'entity', 'weekday', 'weekday_display']
+
+
+class WorkingCalendarEntrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkingCalendarEntry
+        fields = ['id', 'entity', 'date', 'name', 'entry_type']
+
+
+class ProfessionalTaxSlabSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProfessionalTaxSlab
+        fields = ['id', 'entity', 'effective_from', 'income_from', 'income_to', 'monthly_tax']
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
@@ -21,19 +49,23 @@ class AttendanceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Attendance
-        fields = ['id', 'employee_id', 'employee_name', 'date', 'status',
-                  'clock_in_time', 'clock_out_time', 'working_hours',
-                  'marked_by_admin', 'notes']
-        read_only_fields = ['id', 'employee_id', 'employee_name', 'working_hours', 'clock_in_time', 'clock_out_time']
+        fields = [
+            'id', 'employee_id', 'employee_name', 'date', 'status', 'is_half_day',
+            'source', 'clock_in_time', 'clock_out_time', 'working_hours', 'notes',
+        ]
+        read_only_fields = [
+            'id', 'employee_id', 'employee_name', 'working_hours',
+            'clock_in_time', 'clock_out_time',
+        ]
 
     def get_clock_in_time(self, obj):
-        first_session = obj.sessions.order_by('clock_in_time').first()
-        return first_session.clock_in_time.strftime('%H:%M:%S') if first_session else None
+        first = obj.sessions.order_by('clock_in_time').first()
+        return first.clock_in_time.strftime('%H:%M:%S') if first else None
 
     def get_clock_out_time(self, obj):
-        last_session = obj.sessions.order_by('-clock_in_time').first()
-        if last_session and last_session.clock_out_time:
-            return last_session.clock_out_time.strftime('%H:%M:%S')
+        last = obj.sessions.order_by('-clock_in_time').first()
+        if last and last.clock_out_time:
+            return last.clock_out_time.strftime('%H:%M:%S')
         return None
 
     def get_employee_name(self, obj):
@@ -43,9 +75,13 @@ class AttendanceSerializer(serializers.ModelSerializer):
 class LeaveBalanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveBalance
-        fields = ['employee_id', 'sick_total', 'sick_used', 'sick_remaining',
-                  'casual_total', 'casual_used', 'casual_remaining',
-                  'earned_total', 'earned_used', 'earned_remaining', 'unpaid_used']
+        fields = [
+            'employee_id',
+            'sick_total', 'sick_used', 'sick_remaining',
+            'casual_total', 'casual_used', 'casual_remaining',
+            'earned_total', 'earned_used', 'earned_remaining',
+            'unpaid_used',
+        ]
 
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
@@ -54,14 +90,36 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LeaveRequest
-        fields = ['id', 'employee_id', 'employee_name', 'leave_type', 'from_date', 'to_date',
-                  'total_days', 'reason', 'status', 'applied_on', 'reviewed_by',
-                  'reviewed_on', 'rejection_reason']
-        read_only_fields = ['id', 'employee_id', 'employee_name', 'status', 'applied_on',
-                            'reviewed_by', 'reviewed_on', 'rejection_reason']
+        fields = [
+            'id', 'employee_id', 'employee_name', 'leave_type', 'from_date', 'to_date',
+            'total_days', 'reason', 'status', 'applied_on', 'reviewed_by',
+            'reviewed_on', 'rejection_reason',
+        ]
+        read_only_fields = [
+            'id', 'employee_id', 'employee_name', 'status', 'applied_on',
+            'reviewed_by', 'reviewed_on', 'rejection_reason',
+        ]
 
     def get_employee_name(self, obj):
         return _emp_name(obj)
+
+
+class CompensationVersionSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CompensationVersion
+        fields = [
+            'id', 'employee_id', 'employee_name',
+            'effective_from', 'effective_to',
+            'monthly_base_salary', 'monthly_incentive', 'monthly_tds',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'employee_name', 'effective_to', 'created_at']
+
+    def get_employee_name(self, obj):
+        name = f"{obj.employee.first_name} {obj.employee.last_name}".strip()
+        return name or obj.employee.email
 
 
 class PayrollRecordSerializer(serializers.ModelSerializer):
@@ -69,9 +127,13 @@ class PayrollRecordSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PayrollRecord
-        fields = ['id', 'employee_id', 'employee_name', 'entity', 'month', 'year', 'slip_type',
-                  'base_salary', 'incentive_amount', 'net_amount', 'status', 'generated_at',
-                  'sent_at', 'notes']
+        fields = [
+            'id', 'employee_id', 'employee_name', 'entity', 'month', 'year', 'slip_type',
+            'base_salary', 'incentive_amount', 'gross_earnings',
+            'lop_days', 'lop_deduction', 'professional_tax', 'tds_deduction',
+            'other_deductions', 'total_deductions',
+            'net_amount', 'status', 'generated_at', 'sent_at', 'notes',
+        ]
 
     def get_employee_name(self, obj):
         return _emp_name(obj)
@@ -110,54 +172,74 @@ class AdvanceSalaryRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AdvanceSalaryRequest
-        fields = ['id', 'employee_id', 'employee_name', 'amount', 'reason',
-                  'proposed_recovery_months', 'monthly_recovery_amount', 'months_recovered',
-                  'status', 'applied_on', 'reviewed_by', 'rejection_reason']
-        read_only_fields = ['id', 'employee_id', 'employee_name', 'monthly_recovery_amount',
-                            'months_recovered', 'status', 'applied_on', 'reviewed_by', 'rejection_reason']
-
-    def get_employee_name(self, obj):
-        return _emp_name(obj)
-
-
-class CompensationSerializer(serializers.ModelSerializer):
-    employee_name = serializers.SerializerMethodField()
-    employee_id = serializers.IntegerField()
-
-    class Meta:
-        model = Compensation
-        fields = ['id', 'employee_id', 'employee_name', 'monthly_base_salary', 'monthly_incentive']
+        fields = [
+            'id', 'employee_id', 'employee_name', 'amount', 'reason',
+            'proposed_recovery_months', 'monthly_recovery_amount', 'months_recovered',
+            'status', 'applied_on', 'reviewed_by', 'rejection_reason',
+        ]
+        read_only_fields = [
+            'id', 'employee_id', 'employee_name', 'monthly_recovery_amount',
+            'months_recovered', 'status', 'applied_on', 'reviewed_by', 'rejection_reason',
+        ]
 
     def get_employee_name(self, obj):
         return _emp_name(obj)
 
 
 class EmployeeDetailSerializer(serializers.ModelSerializer):
-    compensation = CompensationSerializer(read_only=True)
+    current_compensation = serializers.SerializerMethodField()
     leave_balance = LeaveBalanceSerializer(read_only=True)
     full_name = serializers.CharField(read_only=True)
     avatar_initials = serializers.CharField(read_only=True)
+    entity_id = serializers.PrimaryKeyRelatedField(source='entity', read_only=True)
+    entity = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
-                  'role', 'sub_position', 'manager', 'is_active', 'date_joined',
-                  'phone_number', 'date_of_joining', 'entity', 'compensation', 'leave_balance']
+        fields = [
+            'id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
+            'role', 'sub_position', 'manager', 'is_active', 'date_joined',
+            'phone_number', 'date_of_joining',
+            'entity_id', 'entity',  # entity = name string for backward compat
+            'current_compensation', 'leave_balance',
+        ]
+
+    def get_entity(self, obj):
+        return obj.entity.name if obj.entity_id else None
+
+    def get_current_compensation(self, obj):
+        from django.db.models import Q
+        comp = (
+            obj.compensation_versions
+            .filter(Q(effective_to__isnull=True))
+            .order_by('-effective_from')
+            .first()
+        )
+        if comp is None:
+            return None
+        return CompensationVersionSerializer(comp).data
 
 
 class EmployeeUpdateSerializer(serializers.ModelSerializer):
     date_of_joining = serializers.DateField(required=False, allow_null=True)
+    entity_id = serializers.PrimaryKeyRelatedField(
+        queryset=Entity.objects.all(),
+        source='entity',
+        allow_null=True,
+        required=False,
+    )
 
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'role', 'sub_position', 'entity',
-                  'phone_number', 'date_of_joining', 'is_active']
+        fields = [
+            'first_name', 'last_name', 'role', 'sub_position', 'entity_id',
+            'phone_number', 'date_of_joining', 'is_active',
+        ]
         extra_kwargs = {
             'first_name': {'required': False},
             'last_name': {'required': False},
             'role': {'required': False},
             'sub_position': {'required': False, 'allow_null': True, 'allow_blank': True},
-            'entity': {'required': False, 'allow_null': True, 'allow_blank': True},
             'phone_number': {'required': False, 'allow_blank': True},
             'is_active': {'required': False},
         }
