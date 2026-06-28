@@ -59,6 +59,17 @@ class DocumentDeleteView(views.APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class DocumentMarkReadView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        doc = get_object_or_404(SharedDocument, id=pk, recipient=request.user)
+        if not doc.is_downloaded:
+            doc.is_downloaded = True
+            doc.save(update_fields=['is_downloaded'])
+        return Response({'is_downloaded': True})
+
+
 class InboxView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     serializer_class = SharedDocumentSerializer

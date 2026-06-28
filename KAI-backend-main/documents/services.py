@@ -45,7 +45,7 @@ def send_document(*, sender, recipient_id, file=None, url=None, link_label='', m
                     kind='document_request_fulfilled',
                     title=f"{sender.full_name} fulfilled your document request",
                     body=f"Document: {req.document_type}",
-                    link='/documents',
+                    link='/documents?tab=requests',
                     actor=sender,
                 )
             except DocumentRequest.DoesNotExist:
@@ -60,7 +60,7 @@ def send_document(*, sender, recipient_id, file=None, url=None, link_label='', m
             kind='document_received',
             title=f"{sender.full_name} sent you a document",
             body=filename + (f" — {message}" if message else ""),
-            link='/documents',
+            link='/documents?tab=inbox',
             actor=sender,
         )
     return doc
@@ -108,7 +108,7 @@ def create_document_request(*, requester, target_id, document_type, message='',
             kind='document_request',
             title=f"{requester.full_name} is requesting a document from you",
             body=f"Document needed: {document_type}" + (f" — {message}" if message else ""),
-            link='/documents',
+            link='/documents?tab=requests',
             actor=requester,
         )
     return req
@@ -127,7 +127,7 @@ def decline_document_request(*, req, actor, request=None):
             kind='document_request_declined',
             title=f"{actor.full_name} declined your document request",
             body=f"Document: {req.document_type}",
-            link='/documents',
+            link='/documents?tab=requests',
             actor=actor,
         )
     return req
