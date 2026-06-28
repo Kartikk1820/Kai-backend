@@ -55,3 +55,4 @@ celerybeat-schedule*
 Admin.txt
 bid_tracker.xlsx
 seed_clients.py
+.playwright-browsers/

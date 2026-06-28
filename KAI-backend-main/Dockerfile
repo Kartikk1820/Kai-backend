@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-# RUN playwright install chromium
+RUN playwright install chromium
 
 COPY . .
 

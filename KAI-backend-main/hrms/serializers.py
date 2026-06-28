@@ -106,6 +106,9 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 
 class CompensationVersionSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
+    employee_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='employee'
+    )
 
     class Meta:
         model = CompensationVersion
@@ -120,6 +123,11 @@ class CompensationVersionSerializer(serializers.ModelSerializer):
     def get_employee_name(self, obj):
         name = f"{obj.employee.first_name} {obj.employee.last_name}".strip()
         return name or obj.employee.email
+
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        ret['employee_id'] = instance.employee_id
+        return ret
 
 
 class PayrollRecordSerializer(serializers.ModelSerializer):

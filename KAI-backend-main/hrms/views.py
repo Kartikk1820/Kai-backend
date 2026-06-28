@@ -246,9 +246,18 @@ class MarkAttendanceView(APIView):
         if not emp_id or not date_str:
             return Response({'error': 'employee_id and date are required'}, status=400)
         att, _ = Attendance.objects.get_or_create(employee_id=emp_id, date=date_str)
-        att.status = data.get('status', att.status)
+        new_status = data.get('status', att.status)
+        new_is_half_day = data.get('is_half_day', att.is_half_day)
+
+        # present + is_half_day is invalid — route to half_day status instead.
+        NON_LEAVE_STATUSES = {'present', 'wfh', 'weekly_off', 'holiday', 'unmarked', 'absent'}
+        if new_is_half_day and new_status in NON_LEAVE_STATUSES:
+            new_status = 'half_day'
+            new_is_half_day = False
+
+        att.status = new_status
         att.source = 'admin_override'
-        att.is_half_day = data.get('is_half_day', att.is_half_day)
+        att.is_half_day = new_is_half_day
 
         in_time_str = data.get('clock_in_time')
         out_time_str = data.get('clock_out_time')
