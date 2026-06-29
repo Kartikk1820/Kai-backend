@@ -388,7 +388,12 @@ class CompensationVersionListCreateView(generics.ListCreateAPIView):
         PayrollService.create_compensation_version(
             employee=data['employee'],
             effective_from=data['effective_from'],
-            base_salary=data['monthly_base_salary'],
+            basic_salary=data['basic_salary'],
+            hra=data.get('hra'),
+            special_allowance=data.get('special_allowance'),
+            conveyance_allowance=data.get('conveyance_allowance'),
+            medical_allowance=data.get('medical_allowance'),
+            other_allowance=data.get('other_allowance'),
             incentive=data.get('monthly_incentive', 0),
             tds=data.get('monthly_tds', 0),
             actor=self.request.user,
@@ -417,7 +422,10 @@ class CompensationVersionDetailView(generics.RetrieveUpdateAPIView):
 
     def patch(self, request, *args, **kwargs):
         instance = self.get_object()
-        allowed = {'monthly_base_salary', 'monthly_incentive', 'monthly_tds'}
+        allowed = {
+            'basic_salary', 'hra', 'special_allowance', 'conveyance_allowance',
+            'medical_allowance', 'other_allowance', 'monthly_incentive', 'monthly_tds',
+        }
         for field in set(request.data.keys()) - allowed:
             return Response(
                 {'error': f'Cannot update {field} on existing version. Create a new version instead.'},
