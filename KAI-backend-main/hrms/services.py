@@ -252,14 +252,48 @@ class PayrollService:
                     })
                     continue
 
-                # --- gate on unmarked attendance ---
+                # --- gate: invariant — every working day must have an Attendance row ---
+                _entity = emp.entity
+                if _entity:
+                    _off_weekdays = set(
+                        WeeklyOffRule.objects.filter(entity=_entity).values_list('weekday', flat=True)
+                    ) or {5, 6}
+                    _holiday_dates = set(
+                        WorkingCalendarEntry.objects.filter(
+                            entity=_entity, entry_type='holiday',
+                            date__year=year, date__month=month,
+                        ).values_list('date', flat=True)
+                    )
+                else:
+                    _off_weekdays = {5, 6}
+                    _holiday_dates = set()
+
+                _days_in_month = calendar.monthrange(year, month)[1]
+                expected_working_dates = {
+                    date(year, month, d)
+                    for d in range(1, _days_in_month + 1)
+                    if date(year, month, d).weekday() not in _off_weekdays
+                    and date(year, month, d) not in _holiday_dates
+                }
+                covered_dates = set(
+                    Attendance.objects.filter(
+                        employee=emp, date__year=year, date__month=month,
+                    ).values_list('date', flat=True)
+                )
+                missing_days = len(expected_working_dates - covered_dates)
                 unmarked_count = Attendance.objects.filter(
                     employee=emp, date__year=year, date__month=month, status='unmarked',
                 ).count()
+
+                gate_problems = []
+                if missing_days:
+                    gate_problems.append(f'{missing_days} working day(s) have no attendance record')
                 if unmarked_count:
+                    gate_problems.append(f'{unmarked_count} day(s) marked as unmarked')
+                if gate_problems:
                     errors.append({
                         'employee': emp.id,
-                        'error': f'{unmarked_count} unmarked attendance day(s) in period. Resolve before running payroll.',
+                        'error': 'Incomplete attendance for period — ' + '; '.join(gate_problems) + '. Resolve before running payroll.',
                     })
                     continue
 

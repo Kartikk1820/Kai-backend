@@ -1,3 +1,4 @@
+import calendar as _calendar
 import pytest
 from datetime import date
 from decimal import Decimal
@@ -10,6 +11,19 @@ from hrms.utils import amount_to_words_inr
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
+
+
+def _fill_working_days(emp, year, month, fill_status='present'):
+    """Create Attendance rows for every Mon-Fri not already covered (tests have no entity WeeklyOffRule)."""
+    days_in_month = _calendar.monthrange(year, month)[1]
+    existing = set(
+        Attendance.objects.filter(employee=emp, date__year=year, date__month=month)
+        .values_list('date', flat=True)
+    )
+    for day in range(1, days_in_month + 1):
+        d = date(year, month, day)
+        if d.weekday() not in {5, 6} and d not in existing:
+            Attendance.objects.create(employee=emp, date=d, status=fill_status)
 
 
 @pytest.fixture
@@ -73,20 +87,36 @@ def test_payroll_idempotent(emp, admin):
         effective_from=date(2026, 1, 1),
         basic_salary=Decimal('30000'),
     )
+    _fill_working_days(emp, 2026, 5)
     PayrollService.run_salary(5, 2026, user=admin)
     PayrollService.run_salary(5, 2026, user=admin)
     assert PayrollRecord.objects.filter(employee=emp, month=5, year=2026, slip_type='salary').count() == 1
 
 
 def test_payroll_skips_employee_with_unmarked_attendance(emp, admin):
+    """An unmarked row on a working day blocks payroll even if all other days are covered."""
     CompensationVersion.objects.create(
         employee=emp, effective_from=date(2026, 1, 1),
         basic_salary=Decimal('30000'),
     )
-    Attendance.objects.create(employee=emp, date=date(2026, 5, 10), status='unmarked')
+    # May 11 is a Monday — a real working day
+    Attendance.objects.create(employee=emp, date=date(2026, 5, 11), status='unmarked')
+    _fill_working_days(emp, 2026, 5)  # fills remaining working days as present
     run = PayrollService.run_salary(5, 2026, user=admin)
     assert PayrollRecord.objects.filter(employee=emp, month=5, year=2026).count() == 0
     assert any('unmarked' in e['error'] for e in run.errors if e['employee'] == emp.id)
+
+
+def test_payroll_skips_employee_with_missing_attendance_rows(emp, admin):
+    """Employee with no Attendance rows at all must be skipped — the real bug this gate fixes."""
+    CompensationVersion.objects.create(
+        employee=emp, effective_from=date(2026, 1, 1),
+        basic_salary=Decimal('30000'),
+    )
+    # Deliberately create zero Attendance rows for the period
+    run = PayrollService.run_salary(5, 2026, user=admin)
+    assert PayrollRecord.objects.filter(employee=emp, month=5, year=2026).count() == 0
+    assert any('no attendance record' in e['error'] for e in run.errors if e['employee'] == emp.id)
 
 
 def test_payroll_lop_deduction(emp, admin):
@@ -95,7 +125,9 @@ def test_payroll_lop_deduction(emp, admin):
         employee=emp, effective_from=date(2026, 1, 1),
         basic_salary=Decimal('30000'),
     )
-    Attendance.objects.create(employee=emp, date=date(2026, 5, 10), status='lop')
+    # May 11 is a Monday (working day)
+    Attendance.objects.create(employee=emp, date=date(2026, 5, 11), status='lop')
+    _fill_working_days(emp, 2026, 5)  # covers all remaining working days
     PayrollService.run_salary(5, 2026, user=admin)
     rec = PayrollRecord.objects.get(employee=emp, month=5, year=2026, slip_type='salary')
     assert rec.lop_days == Decimal('1')
@@ -113,12 +145,14 @@ def test_payroll_attendance_snapshot(emp, admin):
     Attendance.objects.create(employee=emp, date=date(2026, 5, 6), status='sick_leave')
     Attendance.objects.create(employee=emp, date=date(2026, 5, 7), status='weekly_off')
     Attendance.objects.create(employee=emp, date=date(2026, 5, 11), status='holiday')
+    _fill_working_days(emp, 2026, 5)  # covers remaining Mon-Fri not yet assigned
     PayrollService.run_salary(5, 2026, user=admin)
     rec = PayrollRecord.objects.get(employee=emp, month=5, year=2026, slip_type='salary')
-    assert rec.days_present == Decimal('1')
-    assert rec.paid_leave_days == Decimal('1')
-    assert rec.weekly_offs == 1
-    assert rec.public_holidays == 1
+    # May 5 (present) + 17 days filled by _fill_working_days = 18 present
+    assert rec.days_present == Decimal('18')
+    assert rec.paid_leave_days == Decimal('1')  # May 6 sick_leave
+    assert rec.weekly_offs == 1                  # May 7 weekly_off
+    assert rec.public_holidays == 1              # May 11 holiday
     assert rec.total_working_days > 0
 
 
