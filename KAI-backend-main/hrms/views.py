@@ -764,6 +764,93 @@ class BankAccountListCreateView(APIView):
         return Response(EmployeeBankAccountSerializer(account).data, status=status.HTTP_201_CREATED)
 
 
+# ============================ Reports ============================
+
+class AttendanceMonthlyReportView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    STATUS_KEYS = [
+        'present', 'wfh', 'half_day', 'sick_leave', 'casual_leave',
+        'earned_leave', 'lop', 'weekly_off', 'holiday', 'absent', 'unmarked',
+    ]
+    STATUS_LABELS = [
+        'Present', 'WFH', 'Half Day', 'Sick Leave', 'Casual Leave',
+        'Earned Leave', 'LOP', 'Weekly Off', 'Holiday', 'Absent', 'Unmarked',
+    ]
+
+    def get(self, request):
+        from collections import defaultdict
+        import csv as csv_mod
+        import io
+
+        user = request.user
+        if not _is_privileged(user, HR_VIEW_ATTENDANCE_ALL):
+            return Response({'detail': 'Permission denied.'}, status=403)
+
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+        if not year or not month:
+            return Response({'detail': 'year and month are required.'}, status=400)
+        try:
+            year, month = int(year), int(month)
+        except ValueError:
+            return Response({'detail': 'Invalid year/month.'}, status=400)
+
+        qs = (
+            Attendance.objects
+            .filter(date__year=year, date__month=month)
+            .select_related('employee', 'employee__entity', 'employee__department')
+            .prefetch_related('sessions')
+            .order_by('employee__first_name', 'employee__last_name', 'date')
+        )
+
+        if request.query_params.get('entity_id'):
+            qs = qs.filter(employee__entity_id=request.query_params['entity_id'])
+        if request.query_params.get('department_id'):
+            qs = qs.filter(employee__department_id=request.query_params['department_id'])
+        if request.query_params.get('employee_id'):
+            qs = qs.filter(employee_id=request.query_params['employee_id'])
+
+        def blank_row():
+            return {
+                'employee_id': None,
+                'employee_name': '',
+                'entity': '',
+                'department': '',
+                'total_working_hours': 0.0,
+                **{k: 0 for k in self.STATUS_KEYS},
+            }
+
+        by_emp = defaultdict(blank_row)
+        for att in qs:
+            row = by_emp[att.employee_id]
+            row['employee_id'] = att.employee_id
+            row['employee_name'] = f"{att.employee.first_name} {att.employee.last_name}".strip() or att.employee.email
+            row['entity'] = att.employee.entity.name if att.employee.entity_id else ''
+            row['department'] = att.employee.department.name if att.employee.department_id else ''
+            row[att.status] = row.get(att.status, 0) + 1
+            row['total_working_hours'] = round(row['total_working_hours'] + (att.working_hours or 0), 2)
+
+        data = sorted(by_emp.values(), key=lambda r: r['employee_name'])
+
+        if request.query_params.get('format') == 'csv':
+            from django.http import HttpResponse
+            buf = io.StringIO()
+            writer = csv_mod.writer(buf)
+            writer.writerow(['Employee', 'Entity', 'Department'] + self.STATUS_LABELS + ['Working Hours (h)'])
+            for row in data:
+                writer.writerow(
+                    [row['employee_name'], row['entity'], row['department']]
+                    + [row[k] for k in self.STATUS_KEYS]
+                    + [row['total_working_hours']]
+                )
+            resp = HttpResponse(buf.getvalue(), content_type='text/csv')
+            resp['Content-Disposition'] = f'attachment; filename="attendance_{year}_{month:02d}.csv"'
+            return resp
+
+        return Response(data)
+
+
 class BankAccountDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 

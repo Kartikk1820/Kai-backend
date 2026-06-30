@@ -20,6 +20,8 @@ from .views import (
     EmployeeListView, EmployeeDetailView, EmployeePresenceView,
     # Bank accounts
     BankAccountListCreateView, BankAccountDetailView,
+    # Reports
+    AttendanceMonthlyReportView,
 )
 
 urlpatterns = [
@@ -74,4 +76,7 @@ urlpatterns = [
     # Bank accounts
     path('bank-accounts/', BankAccountListCreateView.as_view()),
     path('bank-accounts/<int:pk>/', BankAccountDetailView.as_view()),
+
+    # Reports
+    path('reports/attendance/monthly/', AttendanceMonthlyReportView.as_view()),
 ]
