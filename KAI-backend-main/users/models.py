@@ -46,7 +46,7 @@ class CustomUserManager(BaseUserManager):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('is_active', True)
-        extra_fields.setdefault('role', 'Admin')
+        extra_fields.setdefault('user_type', 'Admin')
         extra_fields.setdefault('must_change_password', False)
         if extra_fields.get('is_staff') is not True:
             raise ValueError(_('Superuser must have is_staff=True.'))
@@ -59,7 +59,7 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(_('email address'), unique=True)
 
-    ROLE_CHOICES = [
+    USER_TYPE_CHOICES = [
         ('Admin', 'Admin'),
         ('Manager', 'Manager'),
         ('Employee', 'Employee'),
@@ -67,8 +67,10 @@ class User(AbstractUser):
     ]
     is_active = models.BooleanField(default=True, db_column='is_activated')
 
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='Employee', db_index=True)
-    sub_position = models.CharField(max_length=100, null=True, blank=True)
+    user_type = models.CharField(max_length=20, choices=USER_TYPE_CHOICES, default='Employee', db_index=True)
+    designation = models.ForeignKey(
+        'Position', null=True, blank=True, on_delete=models.SET_NULL, related_name='users'
+    )
     manager = models.ForeignKey(
         'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='subordinates'
     )
@@ -103,7 +105,7 @@ class User(AbstractUser):
         ordering = ['id']
 
     def __str__(self):
-        return f"{self.email} ({self.role})"
+        return f"{self.email} ({self.user_type})"
 
     @property
     def full_name(self):
@@ -118,7 +120,7 @@ class User(AbstractUser):
 
     def effective_permissions(self):
         from core.permissions_catalog import ALL_KEYS
-        if self.is_superuser or self.role == 'Admin':
+        if self.is_superuser or self.user_type == 'Admin':
             return set(ALL_KEYS)
         keys = set()
         for ur in self.user_roles.select_related('role').all():

@@ -28,12 +28,12 @@ def _fill_working_days(emp, year, month, fill_status='present'):
 
 @pytest.fixture
 def admin(db):
-    return User.objects.create_user('a@h.test', 'pass12345', role='Admin', must_change_password=False)
+    return User.objects.create_user('a@h.test', 'pass12345', user_type='Admin', must_change_password=False)
 
 
 @pytest.fixture
 def emp(db, admin):
-    return User.objects.create_user('e@h.test', 'pass12345', role='Employee', manager=admin)
+    return User.objects.create_user('e@h.test', 'pass12345', user_type='Employee', manager=admin)
 
 
 def test_leave_approval_decrements_balance_and_writes_attendance(emp, admin):

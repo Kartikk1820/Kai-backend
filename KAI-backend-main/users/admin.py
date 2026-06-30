@@ -11,12 +11,12 @@ class CustomUserAdmin(UserAdmin):
     change_list_template = "admin/users/user/change_list.html"
 
     ordering = ('email',)
-    list_display = ('email', 'first_name', 'last_name', 'role', 'is_staff')
+    list_display = ('email', 'first_name', 'last_name', 'user_type', 'is_staff')
     search_fields = ('email', 'first_name', 'last_name')
 
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
-        (_('Personal info'), {'fields': ('first_name', 'last_name', 'role', 'sub_position', 'manager')}),
+        (_('Personal info'), {'fields': ('first_name', 'last_name', 'user_type', 'manager')}),
         (_('Permissions'), {
             'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions'),
         }),
@@ -26,7 +26,7 @@ class CustomUserAdmin(UserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('email', 'password', 'role'),
+            'fields': ('email', 'password', 'user_type'),
         }),
     )
 

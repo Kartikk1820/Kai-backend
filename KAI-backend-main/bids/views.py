@@ -110,7 +110,7 @@ class BidFilterOptionsView(views.APIView):
         clients = ClientSerializer(Client.objects.all(), many=True).data
         
         # Fetch all active internal employees (excluding clients) for these dropdowns
-        internal_users = User.objects.filter(is_active=True).exclude(role='Client')
+        internal_users = User.objects.filter(is_active=True).exclude(user_type='Client')
         
         writers = UserBidSerializer(internal_users, many=True).data
         presales = UserBidSerializer(internal_users, many=True).data

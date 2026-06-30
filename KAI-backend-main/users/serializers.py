@@ -33,7 +33,7 @@ class UserMiniSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'full_name', 'avatar_initials', 'role']
+        fields = ['id', 'email', 'full_name', 'avatar_initials', 'user_type']
 
 
 class MeSerializer(serializers.ModelSerializer):
@@ -45,18 +45,24 @@ class MeSerializer(serializers.ModelSerializer):
     # entity = name string (backward compat); entity_id = FK integer
     entity = serializers.SerializerMethodField()
     entity_id = serializers.PrimaryKeyRelatedField(source='entity', read_only=True)
+    designation = serializers.SerializerMethodField()
+    designation_id = serializers.PrimaryKeyRelatedField(source='designation', read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
-            'role', 'sub_position', 'entity', 'entity_id', 'manager', 'phone_number',
+            'user_type', 'designation', 'designation_id', 'entity', 'entity_id',
+            'manager', 'phone_number',
             'must_change_password', 'is_manager', 'permissions', 'roles',
             'state', 'present_location', 'job_id',
         ]
 
     def get_entity(self, obj):
         return obj.entity.name if obj.entity_id else None
+
+    def get_designation(self, obj):
+        return obj.designation.name if obj.designation_id else None
 
     def get_permissions(self, obj):
         return sorted(obj.effective_permissions())
@@ -88,12 +94,18 @@ class AdminUserSerializer(serializers.ModelSerializer):
         queryset=Entity.objects.all(), source='entity',
         allow_null=True, required=False,
     )
+    designation = serializers.SerializerMethodField()
+    designation_id = serializers.PrimaryKeyRelatedField(
+        queryset=Position.objects.all(), source='designation',
+        allow_null=True, required=False,
+    )
 
     class Meta:
         model = User
         fields = [
-            'id', 'email', 'first_name', 'last_name', 'full_name', 'role',
-            'sub_position', 'manager', 'entity', 'entity_id', 'phone_number', 'date_of_joining',
+            'id', 'email', 'first_name', 'last_name', 'full_name', 'user_type',
+            'designation', 'designation_id', 'manager', 'entity', 'entity_id',
+            'phone_number', 'date_of_joining',
             'is_active', 'must_change_password', 'password', 'role_ids', 'roles',
             'state', 'present_location', 'job_id',
         ]
@@ -101,6 +113,9 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
     def get_entity(self, obj):
         return obj.entity.name if obj.entity_id else None
+
+    def get_designation(self, obj):
+        return obj.designation.name if obj.designation_id else None
 
     def get_roles(self, obj):
         return list(obj.user_roles.values_list('role__name', flat=True))

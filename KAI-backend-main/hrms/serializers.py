@@ -5,7 +5,7 @@ from .models import (
     CompensationVersion, Incentive, PayrollRun,
     WeeklyOffRule, WorkingCalendarEntry, ProfessionalTaxSlab,
 )
-from users.models import Entity, Department, EmployeeBankAccount
+from users.models import Entity, Department, EmployeeBankAccount, Position
 
 User = get_user_model()
 
@@ -24,7 +24,7 @@ class EntitySerializer(serializers.ModelSerializer):
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Department
-        fields = ['id', 'name', 'entity']
+        fields = ['id', 'name', 'entity_id']
 
 
 class EmployeeBankAccountSerializer(serializers.ModelSerializer):
@@ -224,13 +224,15 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
     entity = serializers.SerializerMethodField()
     department_id = serializers.PrimaryKeyRelatedField(source='department', read_only=True)
     department = serializers.SerializerMethodField()
+    designation_id = serializers.PrimaryKeyRelatedField(source='designation', read_only=True)
+    designation = serializers.SerializerMethodField()
     active_bank_account = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 'full_name', 'avatar_initials',
-            'role', 'sub_position', 'manager', 'is_active', 'date_joined',
+            'user_type', 'designation', 'designation_id', 'manager', 'is_active', 'date_joined',
             'phone_number', 'date_of_joining',
             'entity_id', 'entity',
             'department_id', 'department',
@@ -243,6 +245,9 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
 
     def get_department(self, obj):
         return obj.department.name if obj.department_id else None
+
+    def get_designation(self, obj):
+        return obj.designation.name if obj.designation_id else None
 
     def get_active_bank_account(self, obj):
         acct = obj.bank_accounts.filter(is_active=True).first()
@@ -269,19 +274,21 @@ class EmployeeUpdateSerializer(serializers.ModelSerializer):
     department_id = serializers.PrimaryKeyRelatedField(
         queryset=Department.objects.all(), source='department', allow_null=True, required=False,
     )
+    designation_id = serializers.PrimaryKeyRelatedField(
+        queryset=Position.objects.all(), source='designation', allow_null=True, required=False,
+    )
 
     class Meta:
         model = User
         fields = [
-            'first_name', 'last_name', 'role', 'sub_position', 'entity_id', 'department_id',
+            'first_name', 'last_name', 'user_type', 'designation_id', 'entity_id', 'department_id',
             'phone_number', 'date_of_joining', 'is_active',
             'pan_number', 'uan_number', 'is_pf_applicable',
         ]
         extra_kwargs = {
             'first_name': {'required': False},
             'last_name': {'required': False},
-            'role': {'required': False},
-            'sub_position': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'user_type': {'required': False},
             'phone_number': {'required': False, 'allow_blank': True},
             'is_active': {'required': False},
             'pan_number': {'required': False, 'allow_null': True, 'allow_blank': True},

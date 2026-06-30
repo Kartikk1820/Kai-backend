@@ -10,13 +10,15 @@ from django.contrib.auth import get_user_model
 
 from core.permissions import HasPermissionKey
 from core.permissions_catalog import (
-    HR_MARK_ATTENDANCE, HR_RUN_PAYROLL, HR_MANAGE_COMPENSATION,
+    HR_MARK_ATTENDANCE, HR_MARK_ATTENDANCE_TEAM,
+    HR_VIEW_ATTENDANCE_ALL, HR_VIEW_ATTENDANCE_TEAM,
+    HR_RUN_PAYROLL, HR_MANAGE_COMPENSATION,
     HR_MANAGE_INCENTIVE, HR_VIEW_DIRECTORY, HR_MANAGE_LEAVE_BALANCE,
     USER_MANAGE_ROLES, HR_MANAGE_ENTITY, HR_MANAGE_CALENDAR,
 )
 from core.services import write_audit
 from notifications.services import notify
-from users.models import Entity
+from users.models import Entity, Department
 from .models import (
     Attendance, LeaveBalance, LeaveRequest, PayrollRecord, AdvanceSalaryRequest,
     CompensationVersion, Incentive, PayrollRun,
@@ -26,7 +28,7 @@ from .serializers import (
     AttendanceSerializer, LeaveBalanceSerializer, LeaveRequestSerializer,
     PayrollRecordSerializer, AdvanceSalaryRequestSerializer, CompensationVersionSerializer,
     EmployeeDetailSerializer, EmployeeUpdateSerializer, IncentiveSerializer, PayrollRunSerializer,
-    EntitySerializer, WeeklyOffRuleSerializer, WorkingCalendarEntrySerializer,
+    EntitySerializer, DepartmentSerializer, WeeklyOffRuleSerializer, WorkingCalendarEntrySerializer,
     ProfessionalTaxSlabSerializer,
 )
 from .services import LeaveService, PayrollService, IncentiveService, can_approve_for
@@ -35,15 +37,31 @@ User = get_user_model()
 
 
 def _is_privileged(user, perm_key):
-    return user.role == 'Admin' or user.has_perm_key(perm_key)
+    return user.user_type == 'Admin' or user.has_perm_key(perm_key)
 
 
 # ============================ Entity & calendar admin ============================
 
 class EntityListCreateView(generics.ListCreateAPIView):
-    permission_classes = [HasPermissionKey.of(HR_MANAGE_ENTITY)]
     serializer_class = EntitySerializer
     queryset = Entity.objects.all()
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [permissions.IsAuthenticated()]
+        return [HasPermissionKey.of(HR_MANAGE_ENTITY)()]
+
+
+class DepartmentListView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DepartmentSerializer
+
+    def get_queryset(self):
+        qs = Department.objects.all()
+        entity_id = self.request.query_params.get('entity_id')
+        if entity_id:
+            qs = qs.filter(entity_id=entity_id)
+        return qs
 
 
 class EntityDetailView(generics.RetrieveUpdateAPIView):
@@ -217,14 +235,21 @@ class AttendanceRecordsView(generics.ListAPIView):
     serializer_class = AttendanceSerializer
 
     def get_queryset(self):
+        from django.db.models import Q
         qs = Attendance.objects.select_related('employee').prefetch_related('sessions').order_by('-date')
         user = self.request.user
-        if not _is_privileged(user, 'hr.view_attendance_all'):
-            qs = qs.filter(employee=user)
-        else:
+        if _is_privileged(user, HR_VIEW_ATTENDANCE_ALL):
             emp = self.request.query_params.get('employee_id')
             if emp:
                 qs = qs.filter(employee_id=emp)
+        elif user.has_perm_key(HR_VIEW_ATTENDANCE_TEAM):
+            # own records + direct reports
+            qs = qs.filter(Q(employee=user) | Q(employee__manager=user)).distinct()
+            emp = self.request.query_params.get('employee_id')
+            if emp:
+                qs = qs.filter(employee_id=emp)
+        else:
+            qs = qs.filter(employee=user)
         p = self.request.query_params
         if p.get('start_date'):
             qs = qs.filter(date__gte=p['start_date'])
@@ -237,14 +262,26 @@ class AttendanceRecordsView(generics.ListAPIView):
 
 
 class MarkAttendanceView(APIView):
-    permission_classes = [HasPermissionKey.of(HR_MARK_ATTENDANCE)]
+    permission_classes = [permissions.IsAuthenticated]
 
-    @extend_schema(summary="Mark / correct attendance (privileged)")
+    @extend_schema(summary="Mark / correct attendance (privileged or team-lead)")
     def post(self, request):
         data = request.data
         emp_id, date_str = data.get('employee_id'), data.get('date')
         if not emp_id or not date_str:
             return Response({'error': 'employee_id and date are required'}, status=400)
+
+        # Full: admin/HR can mark anyone. Team: manager can only mark direct reports.
+        if not _is_privileged(request.user, HR_MARK_ATTENDANCE):
+            if not request.user.has_perm_key(HR_MARK_ATTENDANCE_TEAM):
+                return Response({'detail': 'Not allowed.'}, status=403)
+            try:
+                target_employee = User.objects.get(pk=emp_id)
+            except User.DoesNotExist:
+                return Response({'error': 'Employee not found.'}, status=404)
+            if target_employee.manager_id != request.user.id:
+                return Response({'detail': 'You can only mark attendance for your direct reports.'}, status=403)
+
         att, _ = Attendance.objects.get_or_create(employee_id=emp_id, date=date_str)
         new_status = data.get('status', att.status)
         new_is_half_day = data.get('is_half_day', att.is_half_day)
@@ -303,7 +340,7 @@ class LeaveBalanceView(APIView):
 
     @extend_schema(summary="Edit leave balance (privileged)")
     def patch(self, request):
-        if not request.user.has_perm_key(HR_MANAGE_LEAVE_BALANCE) and request.user.role != 'Admin':
+        if not request.user.has_perm_key(HR_MANAGE_LEAVE_BALANCE) and request.user.user_type != 'Admin':
             return Response({'detail': 'Not allowed.'}, status=403)
         emp_id = request.data.get('employee_id')
         balance, _ = LeaveBalance.objects.get_or_create(employee_id=emp_id)
@@ -580,7 +617,7 @@ class EmployeePresenceView(APIView):
             .values_list('attendance__employee_id', flat=True)
         )
         result = {}
-        for uid in User.objects.exclude(role='Client').values_list('id', flat=True):
+        for uid in User.objects.exclude(user_type='Client').values_list('id', flat=True):
             result[str(uid)] = 'present' if uid in clocked_in_ids else 'offline'
         return Response(result)
 
@@ -588,14 +625,14 @@ class EmployeePresenceView(APIView):
 class EmployeeListView(generics.ListAPIView):
     permission_classes = [HasPermissionKey.of(HR_VIEW_DIRECTORY)]
     serializer_class = EmployeeDetailSerializer
-    queryset = User.objects.exclude(role='Client').select_related('entity')
+    queryset = User.objects.exclude(user_type='Client').select_related('entity')
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['first_name', 'last_name', 'email', 'sub_position']
+    search_fields = ['first_name', 'last_name', 'email', 'designation__name']
     ordering = ['id']
 
 
 class EmployeeDetailView(generics.RetrieveUpdateAPIView):
-    queryset = User.objects.exclude(role='Client').select_related('entity')
+    queryset = User.objects.exclude(user_type='Client').select_related('entity')
 
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH'):

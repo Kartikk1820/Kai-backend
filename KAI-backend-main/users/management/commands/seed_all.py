@@ -64,7 +64,16 @@ SUB_POSITIONS = [
     "Administrative Assistant","Program Coordinator","Data Collection Staff",
 ]
 
-ENTITIES = ["KC Group", "KC Federal", "KC Analytics", "KC Consulting", "KC Solutions"]
+# Real entities: KQT Test Entity (domestic/Karnataka), KC LLC (US/abroad entity).
+# Remaining three are fictional seed entities for variety.
+# get_or_create keyed on 'code' so re-runs don't create duplicates if name changes.
+ENTITY_DATA = [
+    ("KQT Test Entity", "KQT",   "Karnataka"),
+    ("KC LLC",          "KCLLC", ""),
+    ("KC Federal",      "KCFED", "Virginia"),
+    ("KC Analytics",    "KCAN",  "Maryland"),
+    ("KC Solutions",    "KCSOL", "Texas"),
+]
 
 AGENCIES = [
     "Department of Defense","Department of Health and Human Services",
@@ -107,7 +116,7 @@ STATES_LIST = [
     "VT","VA","WA","WV","WI","WY",
 ]
 
-SUBMISSION_METHODS = ["sam_gov","email","portal","hand_delivery"]
+SUBMISSION_METHODS = ["email","portal","physical","portal_and_physical","email_and_physical"]
 BID_STATUSES = ["in_progress","submitted","no_go","unsubmitted","cancelled","postponed"]
 BID_STATUS_WEIGHTS = [30, 25, 15, 10, 10, 10]
 
@@ -280,11 +289,23 @@ class Command(BaseCommand):
         from bids.models import Client, BidOpportunity, ClientBid
         from tasks.models import Team, Task, Sprint, TaskKeyCounter
         from hrms.models import (LeaveBalance, LeaveRequest, Attendance,
-                                  AttendanceSession, Compensation)
+                                  AttendanceSession, CompensationVersion)
         from notifications.models import Notification
+        from users.models import Entity
 
         today = date.today()
         year_ago = today - timedelta(days=365)
+
+        # ── 0. Entities ───────────────────────────────────────────────────────
+        self.stdout.write(self.style.MIGRATE_HEADING('\n[0/7] Creating entities...'))
+        entity_objs = []
+        for name, code, state in ENTITY_DATA:
+            obj, created = Entity.objects.get_or_create(
+                code=code, defaults={'name': name, 'state': state}
+            )
+            entity_objs.append(obj)
+            self.stdout.write(f"  {'Created' if created else 'Exists '} entity: {obj}")
+        self.stdout.write(self.style.SUCCESS(f'  {len(entity_objs)} entities ready'))
 
         # ── 1. Users ──────────────────────────────────────────────────────────
         self.stdout.write(self.style.MIGRATE_HEADING('\n[1/7] Creating users...'))
@@ -292,25 +313,25 @@ class Command(BaseCommand):
 
         managers, employees, hr_staff = [], [], []
 
-        def _make_user(role, sub_pos, domain='kaiportal.com'):
+        def _make_user(role, domain='kaiportal.com'):
             fn, ln = _rand_name()
             email = _rand_email(fn, ln, domain, existing_emails)
             doj = today - timedelta(days=random.randint(60, 1200))
             u = User(
                 email=email, first_name=fn, last_name=ln,
-                role=role, sub_position=sub_pos,
+                user_type=role,
                 phone_number=f'+1-{random.randint(200,999)}-555-{random.randint(1000,9999)}',
                 date_of_joining=doj,
-                entity=random.choice(ENTITIES),
+                entity=random.choice(entity_objs),
                 must_change_password=False, is_active=True,
             )
             u.set_password('Demo@1234')
             return u
 
         # Build user objects (not yet saved)
-        mgr_objs = [_make_user('Manager', random.choice(['Senior VP', 'Team Lead'])) for _ in range(10)]
-        emp_objs = [_make_user('Employee', random.choice(SUB_POSITIONS)) for _ in range(50)]
-        hr_objs  = [_make_user('Manager', 'Team Lead') for _ in range(5)]
+        mgr_objs = [_make_user('Manager') for _ in range(10)]
+        emp_objs = [_make_user('Employee') for _ in range(50)]
+        hr_objs  = [_make_user('Manager') for _ in range(5)]
 
         all_internal = mgr_objs + emp_objs + hr_objs
         User.objects.bulk_create(all_internal, ignore_conflicts=True)
@@ -331,10 +352,33 @@ class Command(BaseCommand):
                     u.manager = random.choice(managers)
                     u.save(update_fields=['manager'])
 
+        # Assign RBAC Role bundles based on user_type
+        from core.models import Role as RbacRole, UserRole
+        role_map = {r.name: r for r in RbacRole.objects.all()}
+        user_type_to_role = {'Manager': 'Manager', 'Employee': 'Employee'}
+        for u in internal:
+            rbac_name = user_type_to_role.get(u.user_type)
+            if rbac_name and rbac_name in role_map:
+                UserRole.objects.get_or_create(user=u, role=role_map[rbac_name])
+        # HR staff get HR Manager role
+        hr_role = role_map.get('HR Manager')
+        if hr_role:
+            for u in hr_staff:
+                UserRole.objects.get_or_create(user=u, role=hr_role)
+        self.stdout.write(self.style.SUCCESS('  RBAC roles assigned to internal users'))
+
         # Compensation + LeaveBalance
-        Compensation.objects.bulk_create([
-            Compensation(employee=u, monthly_base_salary=Decimal(str(random.randint(50, 150) * 100)))
-            for u in internal if not hasattr(u, '_comp_done')
+        from django.utils.timezone import now as tz_now
+        _doj_default = today - timedelta(days=365)
+        CompensationVersion.objects.bulk_create([
+            CompensationVersion(
+                employee=u,
+                effective_from=u.date_of_joining or _doj_default,
+                basic_salary=Decimal(str(random.randint(30, 120) * 1000)),
+                hra=Decimal(str(random.randint(5, 20) * 1000)),
+                special_allowance=Decimal(str(random.randint(2, 10) * 1000)),
+            )
+            for u in internal
         ], ignore_conflicts=True)
         LeaveBalance.objects.bulk_create([
             LeaveBalance(employee=u) for u in internal
@@ -430,7 +474,7 @@ class Command(BaseCommand):
         all_opps = list(BidOpportunity.objects.all())
         self.stdout.write(self.style.SUCCESS(f'  {len(all_opps)} opportunities in DB'))
 
-        writers   = [u for u in employees if u.sub_position == 'Proposal Writer'] or employees[:10]
+        writers   = employees[:10]
         presales  = managers + employees[:15]
 
         bid_objs = []
@@ -450,8 +494,6 @@ class Command(BaseCommand):
                     opportunity=opp, client=client,
                     kc_brand=f"{client.shortcode}-{random.choice(['PRIME','SUB','JV'])}",
                     status=st,
-                    presales_person=random.choice(presales) if presales else None,
-                    writer=random.choice(writers) if writers else None,
                     internal_deadline=opp.due_date - timedelta(days=random.randint(3, 10)),
                     submission_method=random.choice(SUBMISSION_METHODS),
                     comments='Seeded.',
@@ -577,7 +619,7 @@ class Command(BaseCommand):
 
         att_batch, session_batch = [], []
         WORKDAY_STATUSES = ['present','present','present','present','present',
-                            'present','half_day','leave','absent']
+                            'present','half_day','sick_leave','absent']
 
         for emp in att_employees:
             for offset in range(365, 0, -1):
@@ -588,7 +630,7 @@ class Command(BaseCommand):
                     continue
                 existing_att.add((emp.id, att_date))
                 st = random.choice(WORKDAY_STATUSES)
-                att = Attendance(employee=emp, date=att_date, status=st, marked_by_admin=True)
+                att = Attendance(employee=emp, date=att_date, status=st, source='admin_override')
                 att_batch.append(att)
 
         Attendance.objects.bulk_create(att_batch, batch_size=500, ignore_conflicts=True)

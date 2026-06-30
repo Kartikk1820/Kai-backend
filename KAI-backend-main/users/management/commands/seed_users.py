@@ -8,9 +8,9 @@ class Command(BaseCommand):
         User = get_user_model()
 
         users_to_create = [
-            {"email": "john.employee@example.com", "password": "password123", "first_name": "John", "last_name": "Doe", "role": "Employee", "sub_position": "Proposal Writer"},
-            {"email": "jane.vp@example.com", "password": "password123", "first_name": "Jane", "last_name": "Smith", "role": "Employee", "sub_position": "Senior VP"},
-            {"email": "client@example.com", "password": "password123", "first_name": "Acme", "last_name": "Corp", "role": "Client", "sub_position": None},
+            {"email": "john.employee@example.com", "password": "password123", "first_name": "John", "last_name": "Doe", "role": "Employee"},
+            {"email": "jane.vp@example.com", "password": "password123", "first_name": "Jane", "last_name": "Smith", "role": "Employee"},
+            {"email": "client@example.com", "password": "password123", "first_name": "Acme", "last_name": "Corp", "role": "Client"},
         ]
 
         created_count = 0
@@ -21,8 +21,7 @@ class Command(BaseCommand):
                     password=ud["password"],
                     first_name=ud["first_name"],
                     last_name=ud["last_name"],
-                    role=ud["role"],
-                    sub_position=ud["sub_position"]
+                    user_type=ud["role"]
                 )
                 self.stdout.write(self.style.SUCCESS(f"Created user: {ud['email']}"))
                 created_count += 1

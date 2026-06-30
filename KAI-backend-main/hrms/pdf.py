@@ -308,7 +308,7 @@ def build_slip_html(record) -> str:
     pan = emp.pan_number or '—'
     uan = (emp.uan_number if (emp.uan_number and getattr(emp, 'is_pf_applicable', False))
            else 'N/A (PF not applicable)')
-    designation = emp.sub_position or '—'
+    designation = (emp.designation.name if (hasattr(emp, 'designation') and emp.designation_id) else None) or '—'
     department = emp.department.name if (hasattr(emp, 'department') and emp.department_id) else '—'
 
     # For incentive slips the attendance block is not meaningful — use zeros shown

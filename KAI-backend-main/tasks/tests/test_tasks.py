@@ -11,12 +11,12 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture
 def admin(db):
-    return User.objects.create_user('admin@t.test', 'pass12345', role='Admin', must_change_password=False)
+    return User.objects.create_user('admin@t.test', 'pass12345', user_type='Admin', must_change_password=False)
 
 
 @pytest.fixture
 def emp(db, admin):
-    return User.objects.create_user('emp@t.test', 'pass12345', role='Employee', manager=admin)
+    return User.objects.create_user('emp@t.test', 'pass12345', user_type='Employee', manager=admin)
 
 
 def test_key_generation(emp):

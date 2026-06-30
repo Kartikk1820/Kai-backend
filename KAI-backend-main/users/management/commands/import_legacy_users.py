@@ -94,14 +94,13 @@ class Command(BaseCommand):
                                         'last_name': last_name[:150],
                                         'job_id': job_id[:100] if job_id else None,
                                         'state': state[:100] if state else None,
-                                        'sub_position': position[:50] if position else None,
                                         'phone_number': phone[:20] if phone else None,
                                         'present_location': location[:255] if location else None,
                                         'pay_rate': pay_clean,
                                         'margin': margin_clean,
                                         'contract_period': contract[:100] if contract else None,
                                         'date_of_joining': date_of_joining,
-                                        'role': 'Employee',
+                                        'user_type': 'Employee',
                                     }
                                 )
                                 if created:

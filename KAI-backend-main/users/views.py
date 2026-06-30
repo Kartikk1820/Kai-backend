@@ -98,7 +98,7 @@ class UserListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = User.objects.exclude(role='Client').exclude(id=request.user.id).order_by('first_name', 'email')
+        qs = User.objects.exclude(user_type='Client').exclude(id=request.user.id).order_by('first_name', 'email')
         return Response(UserMiniSerializer(qs, many=True).data)
 
 
@@ -108,7 +108,7 @@ class AdminUserListCreateView(ListCreateAPIView):
     pagination_class = None
     serializer_class = AdminUserSerializer
     permission_classes = [HasPermissionKey.of(USER_CREATE)]
-    queryset = User.objects.exclude(role='Client').order_by('id')
+    queryset = User.objects.exclude(user_type='Client').order_by('id')
 
     def create(self, request, *args, **kwargs):
         ser = self.get_serializer(data=request.data)

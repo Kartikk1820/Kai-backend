@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     # Entity & calendar
-    EntityListCreateView, EntityDetailView,
+    EntityListCreateView, EntityDetailView, DepartmentListView,
     WeeklyOffRuleListCreateView, WeeklyOffRuleDetailView,
     WorkingCalendarEntryListCreateView, WorkingCalendarEntryDetailView,
     ProfessionalTaxSlabListCreateView, ProfessionalTaxSlabDetailView,
@@ -23,6 +23,7 @@ from .views import (
 urlpatterns = [
     # Entity & calendar admin
     path('entities/', EntityListCreateView.as_view()),
+    path('departments/', DepartmentListView.as_view()),
     path('entities/<int:pk>/', EntityDetailView.as_view()),
     path('entities/weekly-off-rules/', WeeklyOffRuleListCreateView.as_view()),
     path('entities/weekly-off-rules/<int:pk>/', WeeklyOffRuleDetailView.as_view()),

@@ -28,7 +28,7 @@ LOP_STATUSES = ('lop', 'absent')
 
 def can_approve_for(user, employee):
     """Admin/HR (permission) OR employee's direct manager."""
-    if user.role == 'Admin' or user.has_perm_key(HR_APPROVE_LEAVE):
+    if user.user_type == 'Admin' or user.has_perm_key(HR_APPROVE_LEAVE):
         return True
     return employee.manager_id == user.id
 
@@ -94,7 +94,7 @@ class AttendanceService:
         for entity in Entity.objects.filter(is_active=True):
             employees = list(
                 User.objects.filter(entity=entity, is_active=True)
-                .exclude(role='Client')
+                .exclude(user_type='Client')
             )
             if not employees:
                 continue
@@ -226,7 +226,7 @@ class PayrollService:
         from django.contrib.auth import get_user_model
         User = get_user_model()
         employees = list(
-            User.objects.filter(is_active=True, role__in=paid_roles)
+            User.objects.filter(is_active=True, user_type__in=paid_roles)
             .select_related('entity')
         )
 
@@ -248,6 +248,7 @@ class PayrollService:
                 if not comp:
                     errors.append({
                         'employee': emp.id,
+                        'employee_name': emp.full_name,
                         'error': 'No compensation version effective for this period.',
                     })
                     continue
@@ -269,11 +270,16 @@ class PayrollService:
                     _holiday_dates = set()
 
                 _days_in_month = calendar.monthrange(year, month)[1]
+                # Only require attendance up to yesterday — today's row may not be filed yet
+                # (Celery runs on the 1st of next month, so month_end < today then; but for
+                # manual mid-month runs we must not penalise employees for a day still in progress)
+                _gate_end = min(date(year, month, _days_in_month), date.today() - timedelta(days=1))
                 expected_working_dates = {
                     date(year, month, d)
                     for d in range(1, _days_in_month + 1)
                     if date(year, month, d).weekday() not in _off_weekdays
                     and date(year, month, d) not in _holiday_dates
+                    and date(year, month, d) <= _gate_end
                 }
                 covered_dates = set(
                     Attendance.objects.filter(
@@ -293,6 +299,7 @@ class PayrollService:
                 if gate_problems:
                     errors.append({
                         'employee': emp.id,
+                        'employee_name': emp.full_name,
                         'error': 'Incomplete attendance for period — ' + '; '.join(gate_problems) + '. Resolve before running payroll.',
                     })
                     continue
@@ -421,7 +428,7 @@ class PayrollService:
                        body=f'Your salary slip for {month}/{year} has been generated. Net pay: ₹{net:,.2f}',
                        link='/hrms?tab=payroll', actor=user)
             except Exception as e:
-                errors.append({'employee': emp.id, 'error': str(e)})
+                errors.append({'employee': emp.id, 'employee_name': emp.full_name, 'error': str(e)})
 
         run.records_generated = count
         run.errors = errors

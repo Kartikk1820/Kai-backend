@@ -18,7 +18,9 @@ TEAM_MANAGE = 'team.manage'
 
 # HRMS - attendance
 HR_VIEW_ATTENDANCE_ALL = 'hr.view_attendance_all'
+HR_VIEW_ATTENDANCE_TEAM = 'hr.view_attendance_team'   # own + direct reports only
 HR_MARK_ATTENDANCE = 'hr.mark_attendance'
+HR_MARK_ATTENDANCE_TEAM = 'hr.mark_attendance_team'   # direct reports only
 
 # HRMS - leave
 HR_VIEW_LEAVE_ALL = 'hr.view_leave_all'
@@ -60,7 +62,9 @@ CATALOG = {
     ],
     'Attendance': [
         (HR_VIEW_ATTENDANCE_ALL, 'View everyone\'s attendance'),
-        (HR_MARK_ATTENDANCE, 'Mark / correct attendance'),
+        (HR_VIEW_ATTENDANCE_TEAM, 'View own + direct reports\' attendance'),
+        (HR_MARK_ATTENDANCE, 'Mark / correct any employee\'s attendance'),
+        (HR_MARK_ATTENDANCE_TEAM, 'Mark / correct direct reports\' attendance'),
     ],
     'Leave': [
         (HR_VIEW_LEAVE_ALL, 'View all leave requests'),
@@ -98,7 +102,8 @@ ROLE_BUNDLES = {
     'Manager': [
         TASK_VIEW_ALL, TASK_CREATE, TASK_ASSIGN, TEAM_MANAGE,
         TASK_APPROVE, TASK_BLOCK, TASK_REOPEN,
-        HR_VIEW_ATTENDANCE_ALL, HR_VIEW_LEAVE_ALL, HR_APPROVE_LEAVE,
+        HR_VIEW_ATTENDANCE_TEAM, HR_MARK_ATTENDANCE_TEAM,
+        HR_VIEW_LEAVE_ALL, HR_APPROVE_LEAVE,
         HR_MANAGE_LEAVE_BALANCE, HR_VIEW_DIRECTORY,
     ],
     'HR Manager': [

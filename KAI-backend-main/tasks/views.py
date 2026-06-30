@@ -43,7 +43,7 @@ class TaskFilterOptionsView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        assignees = User.objects.filter(role__in=['Admin', 'Manager', 'Employee']) \
+        assignees = User.objects.filter(user_type__in=['Admin', 'Manager', 'Employee']) \
             .order_by('first_name', 'email')
         teams = Team.objects.filter(is_active=True)
         # distinct labels across tasks
@@ -239,12 +239,12 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
         comment = get_object_or_404(Comment, id=cid, task=task)
         if request.method == 'DELETE':
-            if not (request.user.role == 'Admin' or request.user.has_perm_key('task.manage_comments') or comment.author_id == request.user.id):
+            if not (request.user.user_type == 'Admin' or request.user.has_perm_key('task.manage_comments') or comment.author_id == request.user.id):
                 return Response({'detail': 'Not allowed.'}, status=403)
             comment.delete()
             return Response(status=204)
         # PATCH
-        if not (request.user.role == 'Admin' or request.user.has_perm_key('task.manage_comments') or comment.author_id == request.user.id):
+        if not (request.user.user_type == 'Admin' or request.user.has_perm_key('task.manage_comments') or comment.author_id == request.user.id):
             return Response({'detail': 'Not allowed.'}, status=403)
         body = (request.data.get('body') or '').strip()
         if not body:
@@ -284,7 +284,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     def delete_attachment(self, request, pk=None, aid=None):
         task = self.get_object()
         att = get_object_or_404(Attachment, id=aid, task=task)
-        if not (request.user.role == 'Admin' or request.user.has_perm_key('task.manage_tasks')
+        if not (request.user.user_type == 'Admin' or request.user.has_perm_key('task.manage_tasks')
                 or att.uploaded_by_id == request.user.id or task.reporter_id == request.user.id):
             return Response({'detail': 'Not allowed.'}, status=403)
         if att.file:

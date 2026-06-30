@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 from hrms.models import LeaveRequest
 
 User = get_user_model()
-manager = User.objects.filter(role='Manager').first() or User.objects.create_user(email='manager@example.com', password='pw', role='Manager')
+manager = User.objects.filter(user_type='Manager').first() or User.objects.create_user(email='manager@example.com', password='pw', user_type='Manager')
 
 client = APIClient()
 client.force_authenticate(user=manager)

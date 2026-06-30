@@ -54,7 +54,7 @@ class ManualNotificationView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        if not (request.user.role == 'Admin' or getattr(request.user, 'is_superuser', False)):
+        if not (request.user.user_type == 'Admin' or getattr(request.user, 'is_superuser', False)):
             return Response({'detail': 'Not allowed.'}, status=status.HTTP_403_FORBIDDEN)
             
         title = request.data.get('title')

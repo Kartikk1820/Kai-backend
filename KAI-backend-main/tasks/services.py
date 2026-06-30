@@ -30,7 +30,7 @@ FORCE = {
 
 
 def _can_edit(user, task):
-    if user.role == 'Admin' or user.has_perm_key(TASK_TRANSITION_ANY):
+    if user.user_type == 'Admin' or user.has_perm_key(TASK_TRANSITION_ANY):
         return True
     if task.reporter_id == user.id or task.assignee_id == user.id or task.created_by_id == user.id:
         return True
@@ -47,7 +47,7 @@ class TaskService:
     def transition(cls, task_id, user, action=None, target=None, reason=None, request=None):
         task = Task.objects.select_for_update().get(id=task_id)
         old = task.status
-        is_admin_override = user.role == 'Admin' or user.has_perm_key(TASK_TRANSITION_ANY)
+        is_admin_override = user.user_type == 'Admin' or user.has_perm_key(TASK_TRANSITION_ANY)
 
         # Permission to touch this task at all
         if not _can_edit(user, task):
@@ -169,7 +169,7 @@ class TaskService:
     @classmethod
     @transaction.atomic
     def delete(cls, task, user, request=None):
-        if not (user.role == 'Admin' or user.has_perm_key(TASK_MANAGE)
+        if not (user.user_type == 'Admin' or user.has_perm_key(TASK_MANAGE)
                 or task.reporter_id == user.id or task.created_by_id == user.id
                 or (task.assignee and task.assignee.manager_id == user.id)):
             raise PermissionDenied("You cannot delete this task.")
