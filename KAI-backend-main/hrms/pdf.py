@@ -285,7 +285,7 @@ def _build_lop_note(record) -> str:
     return (
         f'<div class="lop-box">'
         f'<strong>LOP (Loss of Pay) Calculation Note</strong><br>'
-        f'LOP Deduction Formula: LOP Amount = (Gross Monthly Salary &divide; Total Working Days) &times; LOP Days<br>'
+        f'LOP Deduction Formula: LOP Amount = (Basic Salary &divide; Total Working Days) &times; LOP Days<br>'
         f'LOP Days for this month: {_fmt_days(record.lop_days)}'
         f'&nbsp;&nbsp;|&nbsp;&nbsp;Per-Day Rate: &#8377; {per_day:,.2f}'
         f'&nbsp;&nbsp;|&nbsp;&nbsp;Total LOP Deduction: &#8377; {_fmt(record.lop_deduction)}'

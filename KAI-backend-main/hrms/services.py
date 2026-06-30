@@ -216,6 +216,14 @@ class PayrollService:
     @classmethod
     @transaction.atomic
     def run_salary(cls, month, year, user=None, request=None):
+        # Ensure weekly_off/holiday Attendance rows exist before computing snapshots.
+        # seed_calendar is idempotent (get_or_create), so safe to call here even if
+        # the Celery task already ran it. Failure must not abort the payroll run.
+        try:
+            AttendanceService.seed_calendar(month, year)
+        except Exception:
+            pass
+
         run = PayrollRun.objects.create(run_type='salary', month=month, year=year,
                                         triggered_by=user, status='running')
         count, errors = 0, []
