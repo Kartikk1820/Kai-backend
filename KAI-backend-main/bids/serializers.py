@@ -50,6 +50,10 @@ class BidAssignmentSerializer(serializers.ModelSerializer):
 class ClientBidSerializer(serializers.ModelSerializer):
     client = ClientSerializer(read_only=True)
     assignments = BidAssignmentSerializer(many=True, read_only=True)
+    opportunity_title = serializers.CharField(source='opportunity.title', read_only=True)
+    opportunity_agency = serializers.CharField(source='opportunity.agency', read_only=True)
+    opportunity_state = serializers.CharField(source='opportunity.state', read_only=True)
+    opportunity_due_date = serializers.DateTimeField(source='opportunity.due_date', read_only=True)
 
     client_id = serializers.PrimaryKeyRelatedField(
         queryset=Client.objects.all(), source='client',
@@ -66,6 +70,7 @@ class ClientBidSerializer(serializers.ModelSerializer):
             'date_of_review', 'comments',
             'created_at', 'updated_at',
             'client_id',
+            'opportunity_title', 'opportunity_agency', 'opportunity_state', 'opportunity_due_date',
         ]
         read_only_fields = ['id', 'opportunity_id', 'created_at', 'updated_at']
 

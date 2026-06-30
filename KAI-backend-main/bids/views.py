@@ -139,11 +139,14 @@ class BidOpportunityListCreateView(views.APIView):
 
     def get(self, request):
         qs = BidOpportunity.objects.prefetch_related(
-            Prefetch('client_bids', queryset=ClientBid.objects.select_related('client').prefetch_related(
+            Prefetch('client_bids', queryset=ClientBid.objects.select_related('client', 'opportunity').prefetch_related(
                 Prefetch('assignments', queryset=BidAssignment.objects.select_related('user'))
             ))
         )
         qs = _apply_bid_filters(qs, request.query_params)
+        opportunity_id = request.query_params.get('opportunity_id')
+        if opportunity_id:
+            qs = qs.filter(id=opportunity_id)
         return Response(BidOpportunitySerializer(qs, many=True).data)
 
     def post(self, request):
@@ -185,6 +188,9 @@ class ClientBidListView(views.APIView):
         client_id = request.query_params.get('client_id')
         if client_id:
             qs = qs.filter(client_id=client_id)
+        bid_id = request.query_params.get('bid_id')
+        if bid_id:
+            qs = qs.filter(id=bid_id)
         return Response(ClientBidSerializer(qs, many=True).data)
 
     def post(self, request):
