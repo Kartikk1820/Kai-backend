@@ -18,6 +18,8 @@ from .views import (
     AdvanceSalaryListView, AdvanceSalaryCreateView, AdvanceSalaryStatusUpdateView,
     # Directory
     EmployeeListView, EmployeeDetailView, EmployeePresenceView,
+    # Bank accounts
+    BankAccountListCreateView, BankAccountDetailView,
 )
 
 urlpatterns = [
@@ -67,4 +69,8 @@ urlpatterns = [
     path('view_employee/', EmployeeListView.as_view()),
     path('view_employee/<int:pk>/', EmployeeDetailView.as_view()),
     path('employee-presence/', EmployeePresenceView.as_view()),
+
+    # Bank accounts
+    path('bank-accounts/', BankAccountListCreateView.as_view()),
+    path('bank-accounts/<int:pk>/', BankAccountDetailView.as_view()),
 ]

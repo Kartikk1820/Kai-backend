@@ -18,7 +18,7 @@ from core.permissions_catalog import (
 )
 from core.services import write_audit
 from notifications.services import notify
-from users.models import Entity, Department
+from users.models import Entity, Department, EmployeeBankAccount
 from .models import (
     Attendance, LeaveBalance, LeaveRequest, PayrollRecord, AdvanceSalaryRequest,
     CompensationVersion, Incentive, PayrollRun,
@@ -29,7 +29,7 @@ from .serializers import (
     PayrollRecordSerializer, AdvanceSalaryRequestSerializer, CompensationVersionSerializer,
     EmployeeDetailSerializer, EmployeeUpdateSerializer, IncentiveSerializer, PayrollRunSerializer,
     EntitySerializer, DepartmentSerializer, WeeklyOffRuleSerializer, WorkingCalendarEntrySerializer,
-    ProfessionalTaxSlabSerializer,
+    ProfessionalTaxSlabSerializer, EmployeeBankAccountSerializer,
 )
 from .services import LeaveService, PayrollService, IncentiveService, can_approve_for
 
@@ -705,3 +705,81 @@ class AdvanceSalaryStatusUpdateView(APIView):
         write_audit(actor=request.user, model_name='AdvanceSalaryRequest', object_id=adv.id,
                     action='transition', new_state=new_status, request=request)
         return Response(AdvanceSalaryRequestSerializer(adv).data)
+
+
+# ============================ Bank Accounts ============================
+
+class BankAccountListCreateView(APIView):
+    """
+    GET  — returns bank accounts for the requesting employee (or any employee if HR_MANAGE_COMPENSATION).
+    POST — creates a new bank account (deactivates previous active account for that employee).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _target_employee_id(self, request):
+        if _is_privileged(request.user, HR_MANAGE_COMPENSATION):
+            return request.query_params.get('employee_id') or request.data.get('employee_id') or request.user.id
+        return request.user.id
+
+    def get(self, request):
+        emp_id = self._target_employee_id(request)
+        qs = EmployeeBankAccount.objects.filter(employee_id=emp_id).order_by('-effective_from')
+        return Response(EmployeeBankAccountSerializer(qs, many=True).data)
+
+    def post(self, request):
+        emp_id = self._target_employee_id(request)
+        try:
+            emp_id = int(emp_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid employee_id'}, status=status.HTTP_400_BAD_REQUEST)
+
+        bank_name = request.data.get('bank_name', '').strip()
+        account_number = request.data.get('account_number', '').strip()
+        ifsc_code = request.data.get('ifsc_code', '').strip()
+        if not bank_name or not account_number:
+            return Response({'error': 'bank_name and account_number are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Deactivate existing active accounts for this employee
+        EmployeeBankAccount.objects.filter(employee_id=emp_id, is_active=True).update(is_active=False)
+        account = EmployeeBankAccount.objects.create(
+            employee_id=emp_id,
+            bank_name=bank_name,
+            account_number=account_number,
+            ifsc_code=ifsc_code,
+            is_active=True,
+        )
+        write_audit(actor=request.user, model_name='EmployeeBankAccount', object_id=account.id,
+                    action='created', new_state='active', request=request)
+        return Response(EmployeeBankAccountSerializer(account).data, status=status.HTTP_201_CREATED)
+
+
+class BankAccountDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _get_account(self, pk, user):
+        try:
+            account = EmployeeBankAccount.objects.get(pk=pk)
+        except EmployeeBankAccount.DoesNotExist:
+            return None, 404
+        if not _is_privileged(user, HR_MANAGE_COMPENSATION) and account.employee_id != user.id:
+            return None, 403
+        return account, 200
+
+    def patch(self, request, pk):
+        account, code = self._get_account(pk, request.user)
+        if account is None:
+            return Response(status=code)
+        allowed_fields = {'bank_name', 'account_number', 'ifsc_code', 'is_active'}
+        for field, value in request.data.items():
+            if field in allowed_fields:
+                setattr(account, field, value)
+        account.save()
+        return Response(EmployeeBankAccountSerializer(account).data)
+
+    def delete(self, request, pk):
+        account, code = self._get_account(pk, request.user)
+        if account is None:
+            return Response(status=code)
+        account.is_active = False
+        account.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)

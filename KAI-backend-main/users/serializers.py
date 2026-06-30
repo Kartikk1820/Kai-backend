@@ -78,7 +78,12 @@ class ProfileUpdateSerializer(serializers.ModelSerializer):
     """Fields a user is allowed to edit on their own profile."""
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'phone_number', 'present_location', 'state']
+        fields = ['first_name', 'last_name', 'phone_number', 'present_location', 'state',
+                  'pan_number', 'uan_number']
+        extra_kwargs = {
+            'pan_number': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'uan_number': {'required': False, 'allow_null': True, 'allow_blank': True},
+        }
 
 
 class AdminUserSerializer(serializers.ModelSerializer):
@@ -108,8 +113,14 @@ class AdminUserSerializer(serializers.ModelSerializer):
             'phone_number', 'date_of_joining',
             'is_active', 'must_change_password', 'password', 'role_ids', 'roles',
             'state', 'present_location', 'job_id',
+            'pan_number', 'uan_number', 'is_pf_applicable',
         ]
         read_only_fields = ['must_change_password']
+        extra_kwargs = {
+            'pan_number': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'uan_number': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'is_pf_applicable': {'required': False},
+        }
 
     def get_entity(self, obj):
         return obj.entity.name if obj.entity_id else None
