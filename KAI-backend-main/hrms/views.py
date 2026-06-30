@@ -52,9 +52,13 @@ class EntityListCreateView(generics.ListCreateAPIView):
         return [HasPermissionKey.of(HR_MANAGE_ENTITY)()]
 
 
-class DepartmentListView(generics.ListAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+class DepartmentListCreateView(generics.ListCreateAPIView):
     serializer_class = DepartmentSerializer
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [permissions.IsAuthenticated()]
+        return [HasPermissionKey.of(HR_MANAGE_ENTITY)()]
 
     def get_queryset(self):
         qs = Department.objects.all()
@@ -62,6 +66,13 @@ class DepartmentListView(generics.ListAPIView):
         if entity_id:
             qs = qs.filter(entity_id=entity_id)
         return qs
+
+
+class DepartmentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [HasPermissionKey.of(HR_MANAGE_ENTITY)]
+    serializer_class = DepartmentSerializer
+    queryset = Department.objects.all()
+    http_method_names = ['get', 'patch', 'delete']
 
 
 class EntityDetailView(generics.RetrieveUpdateAPIView):
