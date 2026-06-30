@@ -12,10 +12,11 @@ import hashlib
 import json
 import structlog
 
-from .models import Client, BidOpportunity, ClientBid, BidAssignment, PortalCredential
+from .models import Client, BidOpportunity, ClientBid, BidAssignment, PortalCredential, BidOpportunityAttachment, ClientBidProposalFile
 from .serializers import (
     ClientSerializer, ClientDetailSerializer, BidOpportunitySerializer,
-    ClientBidSerializer, BidAssignmentSerializer, UserBidSerializer, PortalCredentialSerializer
+    ClientBidSerializer, BidAssignmentSerializer, UserBidSerializer, PortalCredentialSerializer,
+    BidOpportunityAttachmentSerializer, ClientBidProposalFileSerializer,
 )
 
 logger = structlog.get_logger(__name__)
@@ -138,33 +139,38 @@ class BidOpportunityListCreateView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = BidOpportunity.objects.prefetch_related(
+        qs = BidOpportunity.objects.select_related('prewriter').prefetch_related(
+            'oc_attachments',
             Prefetch('client_bids', queryset=ClientBid.objects.select_related('client', 'opportunity').prefetch_related(
-                Prefetch('assignments', queryset=BidAssignment.objects.select_related('user'))
+                Prefetch('assignments', queryset=BidAssignment.objects.select_related('user')),
+                'proposal_files',
             ))
         )
         qs = _apply_bid_filters(qs, request.query_params)
         opportunity_id = request.query_params.get('opportunity_id')
         if opportunity_id:
             qs = qs.filter(id=opportunity_id)
-        return Response(BidOpportunitySerializer(qs, many=True).data)
+        return Response(BidOpportunitySerializer(qs, many=True, context={'request': request}).data)
 
     def post(self, request):
         from .services import create_opportunity_with_bids
-        # Accept both nested {opportunity, clients} shape (from the modal) and flat shape
         opp_raw = request.data.get('opportunity', request.data)
         clients_raw = request.data.get('clients', [])
 
-        serializer = BidOpportunitySerializer(data=opp_raw)
+        serializer = BidOpportunitySerializer(data=opp_raw, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
+        opp_data = serializer.validated_data
+        if opp_data.get('prewriter') is None:
+            opp_data['prewriter'] = request.user
+
         opportunity = create_opportunity_with_bids(
-            opportunity_data=serializer.validated_data,
+            opportunity_data=opp_data,
             clients_data=clients_raw,
             actor=request.user,
             request=request,
         )
-        return Response(BidOpportunitySerializer(opportunity).data, status=status.HTTP_201_CREATED)
+        return Response(BidOpportunitySerializer(opportunity, context={'request': request}).data, status=status.HTTP_201_CREATED)
 
 
 # ─── 3. Flat ClientBids list ──────────────────────────────────────────────────
@@ -177,7 +183,8 @@ class ClientBidListView(views.APIView):
         qs = ClientBid.objects.filter(opportunity__in=opp_qs).select_related(
             'client', 'opportunity'
         ).prefetch_related(
-            Prefetch('assignments', queryset=BidAssignment.objects.select_related('user'))
+            Prefetch('assignments', queryset=BidAssignment.objects.select_related('user')),
+            'proposal_files',
         )
         statuses = request.query_params.getlist('status')
         if statuses:
@@ -191,7 +198,7 @@ class ClientBidListView(views.APIView):
         bid_id = request.query_params.get('bid_id')
         if bid_id:
             qs = qs.filter(id=bid_id)
-        return Response(ClientBidSerializer(qs, many=True).data)
+        return Response(ClientBidSerializer(qs, many=True, context={'request': request}).data)
 
     def post(self, request):
         serializer = ClientBidSerializer(data=request.data)
@@ -226,9 +233,11 @@ class ClientBidListView(views.APIView):
 
 class BidOpportunityDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAuthenticated]
-    queryset = BidOpportunity.objects.prefetch_related(
+    queryset = BidOpportunity.objects.select_related('prewriter').prefetch_related(
+        'oc_attachments',
         Prefetch('client_bids', queryset=ClientBid.objects.select_related('client').prefetch_related(
-            Prefetch('assignments', queryset=BidAssignment.objects.select_related('user'))
+            Prefetch('assignments', queryset=BidAssignment.objects.select_related('user')),
+            'proposal_files',
         ))
     )
     serializer_class = BidOpportunitySerializer
@@ -506,3 +515,63 @@ class BidAssignmentDetailView(views.APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(BidAssignmentSerializer(assignment).data)
+
+
+# ─── 12. OC File Attachments ──────────────────────────────────────────────────
+
+class BidOpportunityAttachmentListCreateView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, opp_pk):
+        from django.shortcuts import get_object_or_404
+        get_object_or_404(BidOpportunity, pk=opp_pk)
+        attachments = BidOpportunityAttachment.objects.filter(opportunity_id=opp_pk)
+        return Response(BidOpportunityAttachmentSerializer(attachments, many=True, context={'request': request}).data)
+
+    def post(self, request, opp_pk):
+        from django.shortcuts import get_object_or_404
+        opp = get_object_or_404(BidOpportunity, pk=opp_pk)
+        serializer = BidOpportunityAttachmentSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save(opportunity=opp)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class BidOpportunityAttachmentDetailView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, opp_pk, pk):
+        from django.shortcuts import get_object_or_404
+        att = get_object_or_404(BidOpportunityAttachment, pk=pk, opportunity_id=opp_pk)
+        att.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ─── 13. Proposal Files ────────────────────────────────────────────────────────
+
+class ClientBidProposalFileListCreateView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, bid_pk):
+        from django.shortcuts import get_object_or_404
+        get_object_or_404(ClientBid, pk=bid_pk)
+        files = ClientBidProposalFile.objects.filter(bid_id=bid_pk)
+        return Response(ClientBidProposalFileSerializer(files, many=True, context={'request': request}).data)
+
+    def post(self, request, bid_pk):
+        from django.shortcuts import get_object_or_404
+        bid = get_object_or_404(ClientBid, pk=bid_pk)
+        serializer = ClientBidProposalFileSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save(bid=bid)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ClientBidProposalFileDetailView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, bid_pk, pk):
+        from django.shortcuts import get_object_or_404
+        f = get_object_or_404(ClientBidProposalFile, pk=pk, bid_id=bid_pk)
+        f.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

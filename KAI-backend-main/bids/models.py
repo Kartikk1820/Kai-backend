@@ -38,6 +38,14 @@ class BidOpportunity(models.Model):
     pre_bid_info = models.TextField(blank=True)
     qa_notes = models.TextField(blank=True)
     last_synced = models.DateTimeField(null=True, blank=True)
+    poc = models.CharField(max_length=255, blank=True)
+    award_date = models.DateField(null=True, blank=True)
+    prewriter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='prewritten_opportunities',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -99,6 +107,28 @@ class BidAssignment(models.Model):
 
     def __str__(self):
         return f"{self.user} on ClientBid {self.client_bid_id} ({self.role})"
+
+
+class BidOpportunityAttachment(models.Model):
+    opportunity = models.ForeignKey(BidOpportunity, on_delete=models.CASCADE, related_name='oc_attachments')
+    name = models.CharField(max_length=255, blank=True)
+    file = models.FileField(upload_to='bid_oc_files/', null=True, blank=True)
+    link = models.URLField(blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name or self.link or f"OC Attachment {self.id}"
+
+
+class ClientBidProposalFile(models.Model):
+    bid = models.ForeignKey(ClientBid, on_delete=models.CASCADE, related_name='proposal_files')
+    name = models.CharField(max_length=255, blank=True)
+    file = models.FileField(upload_to='bid_proposal_files/', null=True, blank=True)
+    link = models.URLField(blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name or self.link or f"Proposal File {self.id}"
 
 
 class PortalCredential(models.Model):

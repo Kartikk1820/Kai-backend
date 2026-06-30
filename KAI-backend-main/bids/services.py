@@ -49,4 +49,6 @@ def create_opportunity_with_bids(opportunity_data: dict, clients_data: list, act
             request=request,
         )
 
-    return BidOpportunity.objects.prefetch_related('client_bids__client', 'client_bids__presales_person', 'client_bids__writer').get(pk=opportunity.pk)
+    return BidOpportunity.objects.select_related('prewriter').prefetch_related(
+        'oc_attachments', 'client_bids__client', 'client_bids__assignments__user', 'client_bids__proposal_files'
+    ).get(pk=opportunity.pk)

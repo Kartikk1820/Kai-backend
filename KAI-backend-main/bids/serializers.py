@@ -1,6 +1,9 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Client, BidOpportunity, ClientBid, BidAssignment, PortalCredential
+from .models import (
+    Client, BidOpportunity, ClientBid, BidAssignment, PortalCredential,
+    BidOpportunityAttachment, ClientBidProposalFile,
+)
 
 User = get_user_model()
 
@@ -47,9 +50,44 @@ class BidAssignmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'assigned_at']
 
 
+class BidOpportunityAttachmentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BidOpportunityAttachment
+        fields = ['id', 'name', 'file', 'file_url', 'link', 'uploaded_at']
+        read_only_fields = ['id', 'uploaded_at', 'file_url']
+
+    def get_file_url(self, obj):
+        if not obj.file:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url
+
+
+class ClientBidProposalFileSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClientBidProposalFile
+        fields = ['id', 'name', 'file', 'file_url', 'link', 'uploaded_at']
+        read_only_fields = ['id', 'uploaded_at', 'file_url']
+
+    def get_file_url(self, obj):
+        if not obj.file:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.file.url)
+        return obj.file.url
+
+
 class ClientBidSerializer(serializers.ModelSerializer):
     client = ClientSerializer(read_only=True)
     assignments = BidAssignmentSerializer(many=True, read_only=True)
+    proposal_files = ClientBidProposalFileSerializer(many=True, read_only=True)
     opportunity_title = serializers.CharField(source='opportunity.title', read_only=True)
     opportunity_agency = serializers.CharField(source='opportunity.agency', read_only=True)
     opportunity_state = serializers.CharField(source='opportunity.state', read_only=True)
@@ -65,7 +103,7 @@ class ClientBidSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'opportunity_id', 'client', 'kc_brand', 'status',
             'portal_username', 'portal_password',
-            'assignments',
+            'assignments', 'proposal_files',
             'internal_deadline', 'submission_method',
             'date_of_review', 'comments',
             'created_at', 'updated_at',
@@ -73,6 +111,21 @@ class ClientBidSerializer(serializers.ModelSerializer):
             'opportunity_title', 'opportunity_agency', 'opportunity_state', 'opportunity_due_date',
         ]
         read_only_fields = ['id', 'opportunity_id', 'created_at', 'updated_at']
+
+    def validate(self, data):
+        new_status = data.get('status')
+        if new_status is None and self.instance:
+            new_status = self.instance.status
+
+        new_comments = data.get('comments')
+        if new_comments is None and self.instance:
+            new_comments = self.instance.comments
+
+        if new_status in ('no_go', 'unsubmitted') and not (new_comments or '').strip():
+            raise serializers.ValidationError(
+                {'comments': 'A comment is required when status is No Go or Unsubmitted.'}
+            )
+        return data
 
 
 class PortalCredentialSerializer(serializers.ModelSerializer):
@@ -96,6 +149,12 @@ class ClientDetailSerializer(serializers.ModelSerializer):
 
 class BidOpportunitySerializer(serializers.ModelSerializer):
     client_bids = ClientBidSerializer(many=True, read_only=True)
+    oc_attachments = BidOpportunityAttachmentSerializer(many=True, read_only=True)
+    prewriter = UserBidSerializer(read_only=True)
+    prewriter_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='prewriter',
+        write_only=True, required=False, allow_null=True
+    )
 
     class Meta:
         model = BidOpportunity
@@ -103,6 +162,8 @@ class BidOpportunitySerializer(serializers.ModelSerializer):
             'id', 'agency', 'title', 'solicitation_number', 'state',
             'due_date', 'bid_link', 'category', 'source_date',
             'pre_bid_info', 'qa_notes', 'last_synced',
+            'poc', 'award_date', 'prewriter', 'prewriter_id',
+            'oc_attachments',
             'created_at', 'updated_at', 'client_bids',
         ]
         read_only_fields = ['id', 'source_date', 'last_synced', 'created_at', 'updated_at']
