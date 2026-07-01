@@ -56,6 +56,7 @@ class TaskFilterOptionsView(views.APIView):
             'teams': TeamSerializer(teams, many=True).data,
             'labels': sorted(labels),
             'priorities': [c[0] for c in Task.PRIORITY],
+            'types': [c[0] for c in Task.TYPE_CHOICES],
         })
 
 
@@ -98,6 +99,8 @@ class TaskBoardView(views.APIView):
             qs = qs.filter(priority__in=p.getlist('priority'))
         if p.get('label'):
             qs = qs.filter(labels__contains=[p['label']])
+        if p.get('task_type'):
+            qs = qs.filter(task_type=p['task_type'])
         if p.get('linked_bid_id'):
             qs = qs.filter(linked_bid_id=p['linked_bid_id'])
         if p.get('due_from'):
