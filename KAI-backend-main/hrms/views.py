@@ -8,12 +8,13 @@ from rest_framework import status, generics, permissions, filters
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from django.contrib.auth import get_user_model
 
-from core.permissions import HasPermissionKey
+from core.permissions import HasPermissionKey, HasAnyPermissionKey
 from core.permissions_catalog import (
     HR_MARK_ATTENDANCE, HR_MARK_ATTENDANCE_TEAM,
     HR_VIEW_ATTENDANCE_ALL, HR_VIEW_ATTENDANCE_TEAM,
     HR_RUN_PAYROLL, HR_MANAGE_COMPENSATION,
     HR_MANAGE_INCENTIVE, HR_VIEW_DIRECTORY, HR_MANAGE_LEAVE_BALANCE,
+    HR_VIEW_PRESENCE_ALL, HR_VIEW_DIRECTORY_TEAM,
     USER_MANAGE_ROLES, HR_MANAGE_ENTITY, HR_MANAGE_CALENDAR,
 )
 from core.services import write_audit
@@ -617,9 +618,10 @@ class IncentiveSendAllView(APIView):
 # ============================ Directory ============================
 
 class EmployeePresenceView(APIView):
-    permission_classes = [HasPermissionKey.of(HR_VIEW_DIRECTORY)]
+    permission_classes = [HasAnyPermissionKey.of(HR_VIEW_DIRECTORY, HR_VIEW_PRESENCE_ALL, HR_VIEW_DIRECTORY_TEAM)]
 
     def get(self, request):
+        user = request.user
         today = timezone.localtime().date()
         from .models import AttendanceSession
         clocked_in_ids = set(
@@ -627,19 +629,39 @@ class EmployeePresenceView(APIView):
             .filter(attendance__date=today, clock_out_time__isnull=True)
             .values_list('attendance__employee_id', flat=True)
         )
+        has_all = (user.user_type == 'Admin' or
+                   user.has_perm_key(HR_VIEW_DIRECTORY) or
+                   user.has_perm_key(HR_VIEW_PRESENCE_ALL))
+        if has_all:
+            uid_qs = User.objects.exclude(user_type='Client').values_list('id', flat=True)
+        else:
+            from tasks.models import Team
+            from django.db.models import Q
+            team_ids = Team.objects.filter(Q(members=user) | Q(lead=user)).values_list('id', flat=True)
+            uid_qs = Team.objects.filter(id__in=team_ids).values_list('members__id', flat=True).distinct()
         result = {}
-        for uid in User.objects.exclude(user_type='Client').values_list('id', flat=True):
+        for uid in uid_qs:
             result[str(uid)] = 'present' if uid in clocked_in_ids else 'offline'
         return Response(result)
 
 
 class EmployeeListView(generics.ListAPIView):
-    permission_classes = [HasPermissionKey.of(HR_VIEW_DIRECTORY)]
+    permission_classes = [HasAnyPermissionKey.of(HR_VIEW_DIRECTORY, HR_VIEW_DIRECTORY_TEAM)]
     serializer_class = EmployeeDetailSerializer
-    queryset = User.objects.exclude(user_type='Client').select_related('entity')
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['first_name', 'last_name', 'email', 'designation__name']
     ordering = ['id']
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = User.objects.exclude(user_type='Client').select_related('entity')
+        if user.user_type == 'Admin' or user.has_perm_key(HR_VIEW_DIRECTORY):
+            return qs
+        from tasks.models import Team
+        from django.db.models import Q
+        team_ids = Team.objects.filter(Q(members=user) | Q(lead=user)).values_list('id', flat=True)
+        member_ids = Team.objects.filter(id__in=team_ids).values_list('members__id', flat=True).distinct()
+        return qs.filter(id__in=member_ids)
 
 
 class EmployeeDetailView(generics.RetrieveUpdateAPIView):
@@ -648,7 +670,7 @@ class EmployeeDetailView(generics.RetrieveUpdateAPIView):
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH'):
             return [HasPermissionKey.of(USER_MANAGE_ROLES)()]
-        return [HasPermissionKey.of(HR_VIEW_DIRECTORY)()]
+        return [HasAnyPermissionKey.of(HR_VIEW_DIRECTORY, HR_VIEW_DIRECTORY_TEAM)()]
 
     def get_serializer_class(self):
         if self.request.method in ('PUT', 'PATCH'):

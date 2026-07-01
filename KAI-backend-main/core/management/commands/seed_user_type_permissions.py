@@ -1,9 +1,13 @@
 from django.core.management.base import BaseCommand
 from core.models import UserTypePermissions
-from core.permissions_catalog import BID_VIEW_OPPORTUNITY, BID_VIEW_BID, ROLE_BUNDLES
+from core.permissions_catalog import (
+    BID_VIEW_OPPORTUNITY, BID_VIEW_BID,
+    HR_VIEW_PRESENCE_ALL, HR_VIEW_DIRECTORY_TEAM,
+    ROLE_BUNDLES,
+)
 
 DEFAULTS = {
-    'Employee': [BID_VIEW_OPPORTUNITY, BID_VIEW_BID],
+    'Employee': [BID_VIEW_OPPORTUNITY, BID_VIEW_BID, HR_VIEW_PRESENCE_ALL, HR_VIEW_DIRECTORY_TEAM],
     'Manager':  list(ROLE_BUNDLES['Manager']),
     'Client':   [],
 }

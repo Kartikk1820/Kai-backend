@@ -35,6 +35,8 @@ HR_MANAGE_INCENTIVE = 'hr.manage_incentive'
 
 # Directory
 HR_VIEW_DIRECTORY = 'hr.view_directory'
+HR_VIEW_PRESENCE_ALL = 'hr.view_presence_all'    # see clock-in status for all employees
+HR_VIEW_DIRECTORY_TEAM = 'hr.view_directory_team'  # see only own team members in directory
 
 # Entity & calendar admin
 HR_MANAGE_ENTITY = 'hr.manage_entity'      # Entity, WeeklyOffRule, PT slabs
@@ -90,7 +92,9 @@ CATALOG = {
         (HR_MANAGE_INCENTIVE, 'Grant & manage incentives'),
     ],
     'Directory': [
-        (HR_VIEW_DIRECTORY, 'View employee directory'),
+        (HR_VIEW_DIRECTORY, 'View all employees in directory'),
+        (HR_VIEW_PRESENCE_ALL, 'View present/offline status of all employees'),
+        (HR_VIEW_DIRECTORY_TEAM, 'View own team members in directory only'),
     ],
     'Entity & Calendar': [
         (HR_MANAGE_ENTITY, 'Manage entities, weekly-off rules, PT slabs'),
@@ -120,6 +124,7 @@ ALL_KEYS = [key for group in CATALOG.values() for (key, _label) in group]
 ROLE_BUNDLES = {
     'Employee': [
         BID_VIEW_OPPORTUNITY, BID_VIEW_BID,
+        HR_VIEW_PRESENCE_ALL, HR_VIEW_DIRECTORY_TEAM,
     ],
     'Client': [
         # Clients get no internal permissions by default.
@@ -129,7 +134,7 @@ ROLE_BUNDLES = {
         TASK_APPROVE, TASK_BLOCK, TASK_REOPEN,
         HR_VIEW_ATTENDANCE_TEAM, HR_MARK_ATTENDANCE_TEAM,
         HR_VIEW_LEAVE_ALL, HR_APPROVE_LEAVE,
-        HR_MANAGE_LEAVE_BALANCE, HR_VIEW_DIRECTORY,
+        HR_MANAGE_LEAVE_BALANCE, HR_VIEW_DIRECTORY, HR_VIEW_PRESENCE_ALL,
         BID_VIEW_OPPORTUNITY, BID_CREATE_OPPORTUNITY, BID_UPDATE_OPPORTUNITY, BID_DELETE_OPPORTUNITY,
         BID_VIEW_BID, BID_CREATE_BID, BID_UPDATE_BID, BID_DELETE_BID,
     ],
@@ -137,7 +142,7 @@ ROLE_BUNDLES = {
         HR_VIEW_ATTENDANCE_ALL, HR_MARK_ATTENDANCE, HR_VIEW_LEAVE_ALL,
         HR_APPROVE_LEAVE, HR_MANAGE_LEAVE_BALANCE, HR_VIEW_PAYROLL_ALL,
         HR_MANAGE_COMPENSATION, HR_RUN_PAYROLL, HR_MANAGE_INCENTIVE,
-        HR_VIEW_DIRECTORY, HR_MANAGE_CALENDAR,
+        HR_VIEW_DIRECTORY, HR_VIEW_PRESENCE_ALL, HR_MANAGE_CALENDAR,
         BID_VIEW_OPPORTUNITY, BID_VIEW_BID,
     ],
     'Admin': list(ALL_KEYS),
