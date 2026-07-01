@@ -60,6 +60,9 @@ BID_CREATE_BID = 'bid.create_bid'
 BID_UPDATE_BID = 'bid.update_bid'
 BID_DELETE_BID = 'bid.delete_bid'
 
+# Documents
+DOC_SEND_TO_CLIENT = 'document.send_to_client'   # bypass manager approval when sending to client
+
 # Grouped for UI display (Permission catalog screen) and for seeding.
 CATALOG = {
     'Tasks': [
@@ -110,6 +113,9 @@ CATALOG = {
         (BID_UPDATE_BID, 'Edit client bids (status, comments, etc.)'),
         (BID_DELETE_BID, 'Delete client bids'),
     ],
+    'Documents': [
+        (DOC_SEND_TO_CLIENT, 'Send documents to clients without manager approval'),
+    ],
     'Admin': [
         (USER_CREATE, 'Create users'),
         (USER_MANAGE_ROLES, 'Assign roles & permissions'),
@@ -137,6 +143,7 @@ ROLE_BUNDLES = {
         HR_MANAGE_LEAVE_BALANCE, HR_VIEW_DIRECTORY, HR_VIEW_PRESENCE_ALL,
         BID_VIEW_OPPORTUNITY, BID_CREATE_OPPORTUNITY, BID_UPDATE_OPPORTUNITY, BID_DELETE_OPPORTUNITY,
         BID_VIEW_BID, BID_CREATE_BID, BID_UPDATE_BID, BID_DELETE_BID,
+        DOC_SEND_TO_CLIENT,
     ],
     'HR Manager': [
         HR_VIEW_ATTENDANCE_ALL, HR_MARK_ATTENDANCE, HR_VIEW_LEAVE_ALL,

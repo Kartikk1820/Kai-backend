@@ -94,11 +94,16 @@ class ChangePasswordView(APIView):
 # ---------------- Public user list (for peer-to-peer features) ----------------
 
 class UserListView(APIView):
-    """Any authenticated user can list colleagues for document sharing, etc."""
+    """Any authenticated user can list colleagues for document sharing, etc.
+    Pass ?user_type=Client to get only client portal users instead."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = User.objects.exclude(user_type='Client').exclude(id=request.user.id).order_by('first_name', 'email')
+        user_type = request.query_params.get('user_type')
+        if user_type == 'Client':
+            qs = User.objects.filter(user_type='Client').exclude(id=request.user.id).order_by('first_name', 'email')
+        else:
+            qs = User.objects.exclude(user_type='Client').exclude(id=request.user.id).order_by('first_name', 'email')
         return Response(UserMiniSerializer(qs, many=True).data)
 
 

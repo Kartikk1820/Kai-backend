@@ -7,12 +7,16 @@ from django.conf import settings
 from django.http import FileResponse
 import os
 
-from .models import SharedDocument, DocumentRequest
+from .models import SharedDocument, DocumentRequest, DocumentSendApproval
 from .serializers import (
     SharedDocumentSerializer, SendDocumentSerializer,
     DocumentRequestSerializer, CreateDocumentRequestSerializer,
+    DocumentSendApprovalSerializer,
 )
-from .services import send_document, create_document_request, decline_document_request, delete_document
+from .services import (
+    send_document, create_document_request, decline_document_request,
+    delete_document, approve_document_send, reject_document_send,
+)
 
 
 class SendDocumentView(views.APIView):
@@ -31,7 +35,7 @@ class SendDocumentView(views.APIView):
         if f and f.size > settings.MAX_ATTACHMENT_SIZE:
             return Response({'file': ['File too large.']}, status=400)
 
-        doc = send_document(
+        result, result_type = send_document(
             sender=request.user,
             recipient_id=d['recipient_id'],
             file=f,
@@ -39,10 +43,16 @@ class SendDocumentView(views.APIView):
             link_label=d.get('link_label', ''),
             message=d.get('message', ''),
             fulfills_request_id=d.get('fulfills_request_id'),
+            escalation_minutes=d.get('escalation_minutes', 240),
             request=request,
         )
+        if result_type == 'pending_approval':
+            return Response(
+                {'type': 'pending_approval', **DocumentSendApprovalSerializer(result).data},
+                status=status.HTTP_202_ACCEPTED,
+            )
         return Response(
-            SharedDocumentSerializer(doc, context={'request': request}).data,
+            {'type': 'sent', **SharedDocumentSerializer(result, context={'request': request}).data},
             status=status.HTTP_201_CREATED,
         )
 
@@ -182,3 +192,60 @@ class DocumentRequestActionView(views.APIView):
             req.attachment_file.delete(save=False)
         req.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DocumentSendApprovalListView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if user.is_superuser or user.user_type == 'Admin':
+            # Admins see all escalated approvals + their own as manager
+            from django.db.models import Q
+            qs = DocumentSendApproval.objects.filter(
+                Q(status='escalated') | Q(approver=user, status__in=['pending', 'escalated'])
+            ).distinct()
+        elif user.user_type == 'Manager':
+            qs = DocumentSendApproval.objects.filter(
+                approver=user, status__in=['pending', 'escalated']
+            )
+        else:
+            # Employees: see their own outgoing approvals (all statuses for tracking)
+            qs = DocumentSendApproval.objects.filter(sender=user)
+        qs = qs.select_related('sender', 'recipient', 'approver')
+        return Response(DocumentSendApprovalSerializer(qs, many=True).data)
+
+
+class DocumentSendApprovalActionView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        appr = get_object_or_404(DocumentSendApproval, id=pk)
+        user = request.user
+        action = request.data.get('action')
+        comment = request.data.get('comment', '')
+
+        is_original_approver = appr.approver_id == user.id
+        is_admin = user.is_superuser or user.user_type == 'Admin'
+        can_act_as_admin = is_admin and appr.status == 'escalated'
+
+        if not (is_original_approver or can_act_as_admin):
+            return Response({'detail': 'Not authorized to act on this approval.'}, status=403)
+
+        if appr.status in ('approved', 'rejected'):
+            return Response({'detail': f'Already {appr.status}.'}, status=400)
+
+        if action == 'approve':
+            try:
+                doc = approve_document_send(appr=appr, actor=user, request=request)
+            except Exception as e:
+                return Response({'detail': str(e)}, status=400)
+            return Response(
+                {'type': 'sent', **SharedDocumentSerializer(doc, context={'request': request}).data}
+            )
+
+        if action == 'reject':
+            appr = reject_document_send(appr=appr, actor=user, comment=comment, request=request)
+            return Response(DocumentSendApprovalSerializer(appr).data)
+
+        return Response({'detail': 'Invalid action.'}, status=400)

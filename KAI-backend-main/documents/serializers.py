@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import SharedDocument, DocumentRequest
+from .models import SharedDocument, DocumentRequest, DocumentSendApproval
 
 User = get_user_model()
 
@@ -47,6 +47,7 @@ class SendDocumentSerializer(serializers.Serializer):
     link_label = serializers.CharField(required=False, allow_blank=True, default='')
     message = serializers.CharField(required=False, allow_blank=True, default='')
     fulfills_request_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    escalation_minutes = serializers.IntegerField(required=False, default=240, min_value=30)
 
     def validate_recipient_id(self, value):
         if not User.objects.filter(id=value).exists():
@@ -85,6 +86,25 @@ class DocumentRequestSerializer(serializers.ModelSerializer):
 
     def get_attachment_is_link(self, obj):
         return bool(obj.attachment_url)
+
+
+class DocumentSendApprovalSerializer(serializers.ModelSerializer):
+    sender = UserMiniSerializer(read_only=True)
+    recipient = UserMiniSerializer(read_only=True)
+    approver = UserMiniSerializer(read_only=True)
+    has_file = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DocumentSendApproval
+        fields = [
+            'id', 'sender', 'recipient', 'approver', 'status',
+            'filename', 'size', 'message', 'link_label', 'has_file',
+            'escalation_minutes', 'rejection_comment',
+            'escalated_at', 'created_at', 'updated_at',
+        ]
+
+    def get_has_file(self, obj):
+        return bool(obj.file) if not obj.url else False
 
 
 class CreateDocumentRequestSerializer(serializers.Serializer):

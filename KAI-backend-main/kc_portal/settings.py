@@ -222,6 +222,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.tasks.spawn_recurring_tasks',
         'schedule': crontab(hour=0, minute=5),
     },
+    'escalate-stale-doc-approvals': {
+        'task': 'documents.tasks.escalate_stale_approvals',
+        'schedule': crontab(minute='*/30'),  # every 30 minutes
+    },
 }
 
 CACHES = {

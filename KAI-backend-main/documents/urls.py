@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     SendDocumentView, InboxView, SentView, DocumentDownloadView, DocumentDeleteView,
     DocumentMarkReadView, DocumentRequestListCreateView, DocumentRequestActionView,
+    DocumentSendApprovalListView, DocumentSendApprovalActionView,
 )
 
 urlpatterns = [
@@ -13,4 +14,6 @@ urlpatterns = [
     path('<int:pk>/mark-read/', DocumentMarkReadView.as_view(), name='document-mark-read'),
     path('requests/', DocumentRequestListCreateView.as_view(), name='document-requests'),
     path('requests/<int:pk>/', DocumentRequestActionView.as_view(), name='document-request-action'),
+    path('approvals/', DocumentSendApprovalListView.as_view(), name='document-approvals'),
+    path('approvals/<int:pk>/', DocumentSendApprovalActionView.as_view(), name='document-approval-action'),
 ]
