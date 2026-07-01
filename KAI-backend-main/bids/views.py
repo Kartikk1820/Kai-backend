@@ -152,7 +152,7 @@ class BidOpportunityListCreateView(views.APIView):
             'oc_attachments',
             Prefetch('client_bids', queryset=ClientBid.objects.select_related('client', 'opportunity').prefetch_related(
                 Prefetch('assignments', queryset=BidAssignment.objects.select_related('user')),
-                'proposal_files',
+                'proposal_files', 'portal_credentials',
             ))
         )
         qs = _apply_bid_filters(qs, request.query_params)
@@ -226,18 +226,15 @@ class ClientBidListView(views.APIView):
             return Response({"error": "Opportunity not found"}, status=status.HTTP_404_NOT_FOUND)
 
         client_bid = serializer.save(opportunity=opp)
-        
-        # Log activity
-        ActivityLog = apps.get_model('core', 'ActivityLog')
-        client_name = client_bid.client.name if client_bid.client else client_bid.kc_brand
-        ActivityLog.objects.create(
+
+        AuditLog = apps.get_model('core', 'AuditLog')
+        AuditLog.objects.create(
             actor=request.user,
-            action_type='bid_created',
-            target_model='ClientBid',
-            target_id=str(client_bid.id),
-            description=f"Added client '{client_name}' to opportunity '{opp.title}'"
+            model_name='ClientBid',
+            object_id=str(client_bid.id),
+            action='created',
         )
-        
+
         return Response(ClientBidSerializer(client_bid).data, status=status.HTTP_201_CREATED)
 
 
@@ -441,7 +438,9 @@ def _client_prefetch_qs():
         'portal_credentials',
         Prefetch(
             'clientbid_set',
-            queryset=ClientBid.objects.select_related('opportunity').prefetch_related('portal_credentials'),
+            queryset=ClientBid.objects.select_related('opportunity').prefetch_related(
+                'portal_credentials', 'assignments__user', 'proposal_files',
+            ),
         ),
     )
 

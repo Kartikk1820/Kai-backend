@@ -35,7 +35,7 @@ class Client(models.Model):
 class BidOpportunity(models.Model):
     agency = models.CharField(max_length=255)
     title = models.CharField(max_length=255)
-    solicitation_number = models.CharField(max_length=100, unique=True)
+    solicitation_number = models.CharField(max_length=100, unique=True, blank=True, null=True)
     state = models.CharField(max_length=50)
     due_date = models.DateTimeField()
     bid_link = models.URLField(blank=True)

@@ -151,18 +151,27 @@ class ClientBidSerializer(serializers.ModelSerializer):
 # Slim serializer for bids nested inside ClientDetail (avoids heavy nesting)
 class ClientBidSummarySerializer(serializers.ModelSerializer):
     portal_credentials = PortalCredentialSerializer(many=True, read_only=True)
+    assignments = BidAssignmentSerializer(many=True, read_only=True)
+    proposal_files = ClientBidProposalFileSerializer(many=True, read_only=True)
     opportunity_title = serializers.CharField(source='opportunity.title', read_only=True)
     opportunity_agency = serializers.CharField(source='opportunity.agency', read_only=True)
+    opportunity_state = serializers.CharField(source='opportunity.state', read_only=True)
+    opportunity_category = serializers.CharField(source='opportunity.category', read_only=True)
     opportunity_due_date = serializers.DateTimeField(source='opportunity.due_date', read_only=True)
+    opportunity_source_date = serializers.CharField(source='opportunity.source_date', read_only=True, allow_null=True)
     opportunity_status = serializers.CharField(source='opportunity.status', read_only=True)
-    opportunity_solicitation = serializers.CharField(source='opportunity.solicitation_number', read_only=True)
+    opportunity_solicitation = serializers.CharField(source='opportunity.solicitation_number', read_only=True, allow_null=True)
 
     class Meta:
         model = ClientBid
         fields = [
             'id', 'opportunity_id', 'opportunity_title', 'opportunity_agency',
-            'opportunity_due_date', 'opportunity_status', 'opportunity_solicitation',
-            'kc_brand', 'status', 'portal_credentials', 'created_at',
+            'opportunity_state', 'opportunity_category',
+            'opportunity_due_date', 'opportunity_source_date',
+            'opportunity_status', 'opportunity_solicitation',
+            'kc_brand', 'status', 'internal_deadline',
+            'submission_method', 'date_of_review', 'comments',
+            'portal_credentials', 'assignments', 'proposal_files', 'created_at',
         ]
         read_only_fields = fields
 
@@ -192,6 +201,9 @@ class BidOpportunitySerializer(serializers.ModelSerializer):
         queryset=User.objects.all(), source='prewriter',
         write_only=True, required=False, allow_null=True
     )
+    solicitation_number = serializers.CharField(
+        max_length=100, required=False, allow_blank=True, allow_null=True, default=None
+    )
 
     class Meta:
         model = BidOpportunity
@@ -205,6 +217,11 @@ class BidOpportunitySerializer(serializers.ModelSerializer):
             'created_at', 'updated_at', 'client_bids',
         ]
         read_only_fields = ['id', 'source_date', 'last_synced', 'created_at', 'updated_at']
+
+    def validate_solicitation_number(self, value):
+        if not value:
+            return None
+        return value
 
     def validate(self, data):
         new_status = data.get('status')
