@@ -12,12 +12,12 @@ from django.conf import settings
 
 from core.services import write_audit
 from core.permissions import HasPermissionKey
-from core.permissions_catalog import TEAM_MANAGE
-from .models import Task, Comment, Attachment, Team, TaskLink, Sprint
+from core.permissions_catalog import TEAM_MANAGE, TASK_CREATE
+from .models import Task, Comment, Attachment, Team, TaskLink, Sprint, BacklogItem
 from .serializers import (
     TaskCardSerializer, TaskDetailSerializer, TaskCreateSerializer,
     CommentSerializer, AttachmentSerializer, TeamSerializer, TeamDetailSerializer,
-    SprintSerializer,
+    SprintSerializer, BacklogItemSerializer,
 )
 from .services import TaskService
 
@@ -392,3 +392,33 @@ class TeamViewSet(viewsets.ModelViewSet):
         team = self.get_object()
         team.members.remove(user_id)
         return Response(status=204)
+
+
+class PersonalBacklogItemViewSet(viewsets.ModelViewSet):
+    """Private backlog — always scoped to request.user."""
+    permission_classes = [IsAuthenticated]
+    serializer_class = BacklogItemSerializer
+    pagination_class = None
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        return BacklogItem.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def promote(self, request, pk=None):
+        item = self.get_object()
+        task = Task(
+            title=item.title,
+            description=item.notes,
+            reporter=request.user,
+            created_by=request.user,
+        )
+        task.save()
+        write_audit(actor=request.user, model_name='Task', object_id=task.id,
+                    action='promoted_from_backlog', request=request)
+        item.delete()
+        return Response(TaskCardSerializer(task, context={'request': request}).data,
+                        status=status.HTTP_201_CREATED)

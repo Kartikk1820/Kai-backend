@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from .models import Task, Comment, Attachment, TaskLink, Team, Sprint
+from .models import Task, Comment, Attachment, TaskLink, Team, Sprint, BacklogItem
 
 User = get_user_model()
 
@@ -223,3 +223,10 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         if start and due and due.date() < start:
             raise serializers.ValidationError({'due_date': 'Due date must be on or after the start date.'})
         return attrs
+
+
+class BacklogItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BacklogItem
+        fields = ['id', 'title', 'notes', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
