@@ -123,6 +123,14 @@ class User(AbstractUser):
         if self.is_superuser or self.user_type == 'Admin':
             return set(ALL_KEYS)
         keys = set()
+        # Base permissions from user_type defaults (auto-applied, no role assignment needed)
+        from core.models import UserTypePermissions
+        try:
+            utp = UserTypePermissions.objects.get(user_type=self.user_type)
+            keys |= set(utp.permission_keys or [])
+        except UserTypePermissions.DoesNotExist:
+            pass
+        # Additional permissions from manually assigned roles
         for ur in self.user_roles.select_related('role').all():
             keys |= set(ur.role.permission_keys or [])
         keys |= set(self.extra_permissions or [])

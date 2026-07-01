@@ -32,6 +32,30 @@ class AuditLog(models.Model):
         return f"{self.timestamp} | {actor_name} | {self.model_name} {self.object_id} | {self.old_state} -> {self.new_state}"
 
 
+class UserTypePermissions(models.Model):
+    """
+    Stores default permission keys for each user_type.
+    effective_permissions() merges these in automatically — no manual role
+    assignment needed. Admin user_type bypasses this (always gets ALL_KEYS).
+    """
+    USER_TYPE_CHOICES = [
+        ('Employee', 'Employee'),
+        ('Manager', 'Manager'),
+        ('Client', 'Client'),
+    ]
+    user_type = models.CharField(max_length=20, unique=True, choices=USER_TYPE_CHOICES)
+    permission_keys = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['user_type']
+        verbose_name = 'User Type Permissions'
+        verbose_name_plural = 'User Type Permissions'
+
+    def __str__(self):
+        return f"{self.user_type} ({len(self.permission_keys)} perms)"
+
+
 class Role(models.Model):
     """A named bundle of permission keys (our 'Group'). Admin-managed."""
     name = models.CharField(max_length=80, unique=True)

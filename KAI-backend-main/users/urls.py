@@ -5,7 +5,7 @@ from .views import (
     AdminUserListCreateView, AdminUserDetailView, AdminResetPasswordView,
     RoleListCreateView, RoleDetailView, PermissionCatalogView,
     PositionListCreateView, PositionDetailView,
-    UserListView,
+    UserListView, UserTypePermissionsView,
 )
 
 urlpatterns = [
@@ -23,6 +23,8 @@ urlpatterns = [
     path('admin/roles/', RoleListCreateView.as_view(), name='role-list'),
     path('admin/roles/<int:pk>/', RoleDetailView.as_view(), name='role-detail'),
     path('admin/permissions/', PermissionCatalogView.as_view(), name='permission-catalog'),
+    path('admin/user-type-permissions/', UserTypePermissionsView.as_view(), name='user-type-permissions'),
+    path('admin/user-type-permissions/<str:user_type>/', UserTypePermissionsView.as_view(), name='user-type-permissions-detail'),
     path('admin/positions/', PositionListCreateView.as_view(), name='position-list'),
     path('admin/positions/<int:pk>/', PositionDetailView.as_view(), name='position-detail'),
 ]

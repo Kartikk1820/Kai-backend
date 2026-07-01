@@ -14,7 +14,7 @@ from django.utils.crypto import get_random_string
 from core.permissions import HasPermissionKey
 from core.permissions_catalog import USER_CREATE, USER_RESET_PASSWORD, RBAC_MANAGE
 from core.services import write_audit
-from core.models import Role
+from core.models import Role, UserTypePermissions
 from .serializers import (
     CustomTokenObtainPairSerializer, MeSerializer, ChangePasswordSerializer,
     AdminUserSerializer, RoleSerializer, CustomTokenRefreshSerializer,
@@ -177,6 +177,28 @@ class PermissionCatalogView(APIView):
         data = {group: [{'key': k, 'label': lbl} for (k, lbl) in items]
                 for group, items in CATALOG.items()}
         return Response(data)
+
+
+class UserTypePermissionsView(APIView):
+    """GET all user_type permission maps; PATCH a specific user_type."""
+    permission_classes = [HasPermissionKey.of(RBAC_MANAGE)]
+
+    def get(self, request):
+        items = UserTypePermissions.objects.all()
+        return Response({item.user_type: item.permission_keys for item in items})
+
+    def patch(self, request, user_type):
+        from core.permissions_catalog import ALL_KEYS
+        keys = request.data.get('permission_keys', [])
+        invalid = [k for k in keys if k not in ALL_KEYS]
+        if invalid:
+            return Response({'error': f'Unknown permission keys: {invalid}'}, status=400)
+        obj, _ = UserTypePermissions.objects.get_or_create(user_type=user_type)
+        obj.permission_keys = keys
+        obj.save()
+        write_audit(actor=request.user, model_name='UserTypePermissions',
+                    object_id=user_type, action='updated', request=request)
+        return Response({'user_type': obj.user_type, 'permission_keys': obj.permission_keys})
 
 
 class PositionListCreateView(ListCreateAPIView):

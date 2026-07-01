@@ -2,6 +2,11 @@ from rest_framework import views, generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
+from core.permissions import HasPermissionKey
+from core.permissions_catalog import (
+    BID_VIEW_OPPORTUNITY, BID_CREATE_OPPORTUNITY, BID_UPDATE_OPPORTUNITY, BID_DELETE_OPPORTUNITY,
+    BID_VIEW_BID, BID_CREATE_BID, BID_UPDATE_BID, BID_DELETE_BID,
+)
 from django.db.models import Q, Prefetch
 from django.contrib.auth import get_user_model
 from django.apps import apps
@@ -136,7 +141,10 @@ class BidFilterOptionsView(views.APIView):
 # ─── 2. List BidOpportunities (grouped) ───────────────────────────────────────
 
 class BidOpportunityListCreateView(views.APIView):
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAuthenticated(), HasPermissionKey.of(BID_CREATE_OPPORTUNITY)()]
+        return [IsAuthenticated(), HasPermissionKey.of(BID_VIEW_OPPORTUNITY)()]
 
     def get(self, request):
         qs = BidOpportunity.objects.select_related('prewriter').prefetch_related(
@@ -176,7 +184,10 @@ class BidOpportunityListCreateView(views.APIView):
 # ─── 3. Flat ClientBids list ──────────────────────────────────────────────────
 
 class ClientBidListView(views.APIView):
-    permission_classes = [IsAuthenticated]
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAuthenticated(), HasPermissionKey.of(BID_CREATE_BID)()]
+        return [IsAuthenticated(), HasPermissionKey.of(BID_VIEW_BID)()]
 
     def get(self, request):
         opp_qs = _apply_bid_filters(BidOpportunity.objects.all(), request.query_params)
@@ -232,7 +243,6 @@ class ClientBidListView(views.APIView):
 # ─── 4. Single BidOpportunity detail ─────────────────────────────────────────
 
 class BidOpportunityDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [IsAuthenticated]
     queryset = BidOpportunity.objects.select_related('prewriter').prefetch_related(
         'oc_attachments',
         Prefetch('client_bids', queryset=ClientBid.objects.select_related('client').prefetch_related(
@@ -242,11 +252,19 @@ class BidOpportunityDetailView(generics.RetrieveUpdateDestroyAPIView):
     )
     serializer_class = BidOpportunitySerializer
 
+    def get_permissions(self):
+        method = self.request.method
+        if method in ('PUT', 'PATCH'):
+            return [IsAuthenticated(), HasPermissionKey.of(BID_UPDATE_OPPORTUNITY)()]
+        if method == 'DELETE':
+            return [IsAuthenticated(), HasPermissionKey.of(BID_DELETE_OPPORTUNITY)()]
+        return [IsAuthenticated(), HasPermissionKey.of(BID_VIEW_OPPORTUNITY)()]
+
 
 # ─── 6. Update ClientBid ──────────────────────────────────────────────────────
 
 class ClientBidDetailView(generics.UpdateAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasPermissionKey.of(BID_UPDATE_BID)]
     queryset = ClientBid.objects.select_related('client').prefetch_related('assignments__user')
     serializer_class = ClientBidSerializer
     http_method_names = ['patch']

@@ -46,6 +46,18 @@ USER_MANAGE_ROLES = 'user.manage_roles'
 USER_RESET_PASSWORD = 'user.reset_password'
 RBAC_MANAGE = 'rbac.manage'
 
+# Bids - BidOpportunity
+BID_VIEW_OPPORTUNITY = 'bid.view_opportunity'
+BID_CREATE_OPPORTUNITY = 'bid.create_opportunity'
+BID_UPDATE_OPPORTUNITY = 'bid.update_opportunity'
+BID_DELETE_OPPORTUNITY = 'bid.delete_opportunity'
+
+# Bids - ClientBid
+BID_VIEW_BID = 'bid.view_bid'
+BID_CREATE_BID = 'bid.create_bid'
+BID_UPDATE_BID = 'bid.update_bid'
+BID_DELETE_BID = 'bid.delete_bid'
+
 # Grouped for UI display (Permission catalog screen) and for seeding.
 CATALOG = {
     'Tasks': [
@@ -84,6 +96,16 @@ CATALOG = {
         (HR_MANAGE_ENTITY, 'Manage entities, weekly-off rules, PT slabs'),
         (HR_MANAGE_CALENDAR, 'Manage public holiday calendar'),
     ],
+    'Bids': [
+        (BID_VIEW_OPPORTUNITY, 'View bid opportunities'),
+        (BID_CREATE_OPPORTUNITY, 'Create bid opportunities'),
+        (BID_UPDATE_OPPORTUNITY, 'Edit bid opportunities'),
+        (BID_DELETE_OPPORTUNITY, 'Delete bid opportunities'),
+        (BID_VIEW_BID, 'View client bids'),
+        (BID_CREATE_BID, 'Create client bids'),
+        (BID_UPDATE_BID, 'Edit client bids (status, comments, etc.)'),
+        (BID_DELETE_BID, 'Delete client bids'),
+    ],
     'Admin': [
         (USER_CREATE, 'Create users'),
         (USER_MANAGE_ROLES, 'Assign roles & permissions'),
@@ -97,7 +119,10 @@ ALL_KEYS = [key for group in CATALOG.values() for (key, _label) in group]
 # Default role -> permission bundles used by the seeder.
 ROLE_BUNDLES = {
     'Employee': [
-        # Employee has minimal permissions by default. Can only transition their own tasks.
+        BID_VIEW_OPPORTUNITY, BID_VIEW_BID,
+    ],
+    'Client': [
+        # Clients get no internal permissions by default.
     ],
     'Manager': [
         TASK_VIEW_ALL, TASK_CREATE, TASK_ASSIGN, TEAM_MANAGE,
@@ -105,12 +130,15 @@ ROLE_BUNDLES = {
         HR_VIEW_ATTENDANCE_TEAM, HR_MARK_ATTENDANCE_TEAM,
         HR_VIEW_LEAVE_ALL, HR_APPROVE_LEAVE,
         HR_MANAGE_LEAVE_BALANCE, HR_VIEW_DIRECTORY,
+        BID_VIEW_OPPORTUNITY, BID_CREATE_OPPORTUNITY, BID_UPDATE_OPPORTUNITY, BID_DELETE_OPPORTUNITY,
+        BID_VIEW_BID, BID_CREATE_BID, BID_UPDATE_BID, BID_DELETE_BID,
     ],
     'HR Manager': [
         HR_VIEW_ATTENDANCE_ALL, HR_MARK_ATTENDANCE, HR_VIEW_LEAVE_ALL,
         HR_APPROVE_LEAVE, HR_MANAGE_LEAVE_BALANCE, HR_VIEW_PAYROLL_ALL,
         HR_MANAGE_COMPENSATION, HR_RUN_PAYROLL, HR_MANAGE_INCENTIVE,
         HR_VIEW_DIRECTORY, HR_MANAGE_CALENDAR,
+        BID_VIEW_OPPORTUNITY, BID_VIEW_BID,
     ],
     'Admin': list(ALL_KEYS),
 }
