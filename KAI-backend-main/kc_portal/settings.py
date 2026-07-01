@@ -218,6 +218,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'hrms.tasks.auto_clock_out_midnight',
         'schedule': crontab(hour=23, minute=59),
     },
+    'spawn-recurring-tasks': {
+        'task': 'tasks.tasks.spawn_recurring_tasks',
+        'schedule': crontab(hour=0, minute=5),
+    },
 }
 
 CACHES = {

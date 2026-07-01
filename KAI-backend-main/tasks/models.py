@@ -84,6 +84,13 @@ class Task(models.Model):
         ('issue', 'Issue'),
         ('bid', 'Bid'),
     ]
+    RECURRENCE_CHOICES = [
+        ('none', 'None'),
+        ('daily', 'Daily'),
+        ('weekly', 'Weekly'),
+        ('monthly', 'Monthly'),
+        ('yearly', 'Yearly'),
+    ]
 
     key = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
     title = models.CharField(max_length=255)
@@ -119,6 +126,15 @@ class Task(models.Model):
 
     # Fractional ordering within a column.
     position = models.FloatField(default=0)
+
+    # Recurrence
+    recurrence_type = models.CharField(max_length=10, choices=RECURRENCE_CHOICES, default='none', db_index=True)
+    recurrence_days = models.JSONField(null=True, blank=True)
+    recurrence_end_date = models.DateField(null=True, blank=True)
+    is_recurrence_template = models.BooleanField(default=False, db_index=True)
+    recurrence_parent = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='spawned_instances'
+    )
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,

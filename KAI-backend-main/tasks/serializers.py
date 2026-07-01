@@ -139,6 +139,7 @@ class TaskCardSerializer(serializers.ModelSerializer):
             'id', 'key', 'title', 'status', 'priority', 'task_type', 'story_points',
             'sprint_id', 'assignee', 'labels', 'due_date', 'is_overdue', 'position',
             'team_name', 'linked_bid_label', 'comment_count', 'attachment_count',
+            'is_recurrence_template', 'recurrence_type',
         ]
 
     def get_is_overdue(self, obj):
@@ -178,8 +179,10 @@ class TaskDetailSerializer(serializers.ModelSerializer):
             'labels', 'start_date', 'due_date', 'is_overdue', 'position',
             'attachments', 'links', 'created_at', 'updated_at',
             'assignee_id', 'reporter_id', 'team_id', 'linked_bid_id', 'sprint_id',
+            'recurrence_type', 'recurrence_days', 'recurrence_end_date', 'is_recurrence_template',
         ]
-        read_only_fields = ['id', 'key', 'status', 'created_by', 'position', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'key', 'status', 'created_by', 'position', 'created_at', 'updated_at',
+                            'is_recurrence_template']
 
     def get_links(self, obj):
         return TaskLinkSerializer(obj.outgoing_links.select_related('target_task'), many=True).data
@@ -209,12 +212,17 @@ class TaskCreateSerializer(serializers.ModelSerializer):
     linked_bid_id = serializers.IntegerField(required=False, allow_null=True)
     status = serializers.ChoiceField(choices=Task.STATUS, required=False)
 
+    recurrence_type = serializers.ChoiceField(choices=Task.RECURRENCE_CHOICES, required=False, default='none')
+    recurrence_days = serializers.JSONField(required=False, allow_null=True)
+    recurrence_end_date = serializers.DateField(required=False, allow_null=True)
+
     class Meta:
         model = Task
         fields = [
             'title', 'description', 'priority', 'task_type', 'story_points',
             'status', 'assignee_id', 'team_id', 'sprint_id',
             'linked_bid_id', 'labels', 'start_date', 'due_date',
+            'recurrence_type', 'recurrence_days', 'recurrence_end_date',
         ]
 
     def validate(self, attrs):

@@ -117,6 +117,8 @@ class TaskBoardView(views.APIView):
                 qs = qs.filter(sprint__isnull=True)
             else:
                 qs = qs.filter(sprint_id=sid)
+        if p.get('include_templates') != 'true':
+            qs = qs.filter(is_recurrence_template=False)
 
         qs = qs.order_by('position', '-created_at')
         board = {}
@@ -150,10 +152,12 @@ class TaskViewSet(viewsets.ModelViewSet):
         if requested_status not in ('todo', 'in_progress') or not request.user.has_perm_key('task.transition_any'):
             requested_status = 'todo'
         linked_bid_id = data.pop('linked_bid_id', None)
+        recurrence_type = data.get('recurrence_type', 'none')
         top = Task.objects.filter(status=requested_status).order_by('position').first()
         position = (top.position - 1) if top else 0
         task = Task(reporter=request.user, created_by=request.user,
-                    status=requested_status, position=position, **data)
+                    status=requested_status, position=position,
+                    is_recurrence_template=(recurrence_type != 'none'), **data)
         if linked_bid_id:
             task.linked_bid_id = linked_bid_id
         task.save()
