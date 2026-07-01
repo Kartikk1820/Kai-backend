@@ -17,6 +17,8 @@ class Notification(models.Model):
         ('payslip_generated', 'Payslip generated'),
         ('advance_approved', 'Advance approved'),
         ('advance_rejected', 'Advance rejected'),
+        ('bid_oc_pending', 'Bid OC pending upload'),
+        ('bid_pip', 'Bid moved to PIP'),
     ]
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications', db_index=True)

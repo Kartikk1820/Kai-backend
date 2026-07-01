@@ -11,6 +11,8 @@ from .views import (
     ClientRetrieveUpdateView,
     PortalCredentialListCreateView,
     PortalCredentialDetailView,
+    ClientBidCredentialListCreateView,
+    ClientBidCredentialDetailView,
     BidAssignmentListCreateView,
     BidAssignmentDetailView,
     BidOpportunityAttachmentListCreateView,
@@ -31,6 +33,9 @@ urlpatterns = [
     # Client bids
     path('client-bids/', ClientBidListView.as_view(), name='client-bid-list'),
     path('client-bids/<int:pk>/', ClientBidDetailView.as_view(), name='client-bid-detail'),
+    # Portal credentials nested under client-bid (primary)
+    path('client-bids/<int:bid_pk>/credentials/', ClientBidCredentialListCreateView.as_view(), name='bid-credential-list'),
+    path('client-bids/<int:bid_pk>/credentials/<int:pk>/', ClientBidCredentialDetailView.as_view(), name='bid-credential-detail'),
     # Proposal files
     path('client-bids/<int:bid_pk>/proposal-files/', ClientBidProposalFileListCreateView.as_view(), name='bid-proposal-files-list'),
     path('client-bids/<int:bid_pk>/proposal-files/<int:pk>/', ClientBidProposalFileDetailView.as_view(), name='bid-proposal-file-detail'),
@@ -43,7 +48,7 @@ urlpatterns = [
     # Clients CRUD
     path('clients/', ClientListCreateView.as_view(), name='client-list'),
     path('clients/<int:pk>/', ClientRetrieveUpdateView.as_view(), name='client-detail'),
-    # Portal credentials (nested under client)
+    # Portal credentials nested under client (legacy — client-level creds)
     path('clients/<int:client_pk>/credentials/', PortalCredentialListCreateView.as_view(), name='credential-list'),
     path('clients/<int:client_pk>/credentials/<int:pk>/', PortalCredentialDetailView.as_view(), name='credential-detail'),
 ]

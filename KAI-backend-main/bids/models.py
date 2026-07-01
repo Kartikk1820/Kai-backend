@@ -5,6 +5,12 @@ from django.conf import settings
 class Client(models.Model):
     name = models.CharField(max_length=255)
     shortcode = models.CharField(max_length=20, unique=True)
+    linked_user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='client_profile',
+    )
 
     # Company information
     owner_name = models.CharField(max_length=255, blank=True)
@@ -46,6 +52,18 @@ class BidOpportunity(models.Model):
         on_delete=models.SET_NULL,
         related_name='prewritten_opportunities',
     )
+
+    OPPORTUNITY_STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('in_review', 'In Review'),
+        ('pip', 'PIP'),
+        ('cancelled', 'Cancelled'),
+    ]
+    status = models.CharField(
+        max_length=15, choices=OPPORTUNITY_STATUS_CHOICES, default='draft', db_index=True
+    )
+    cancellation_reason = models.TextField(blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -132,7 +150,8 @@ class ClientBidProposalFile(models.Model):
 
 
 class PortalCredential(models.Model):
-    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='portal_credentials')
+    client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.SET_NULL, related_name='portal_credentials')
+    client_bid = models.ForeignKey('ClientBid', null=True, blank=True, on_delete=models.SET_NULL, related_name='portal_credentials')
     state = models.CharField(max_length=255, blank=True)
     agency = models.CharField(max_length=255, blank=True)
     portal_name = models.CharField(max_length=255, blank=True)

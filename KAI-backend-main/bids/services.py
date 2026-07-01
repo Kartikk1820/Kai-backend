@@ -31,7 +31,6 @@ def create_opportunity_with_bids(opportunity_data: dict, clients_data: list, act
             'submission_method': raw.get('submission_method') or '',
             'comments': raw.get('comments') or '',
         }
-        # Only set FK and nullable datetime fields when non-empty to avoid type coercion errors
         if raw.get('client_id'):
             bid_kwargs['client_id'] = raw['client_id']
         if raw.get('internal_deadline'):
@@ -50,5 +49,48 @@ def create_opportunity_with_bids(opportunity_data: dict, clients_data: list, act
         )
 
     return BidOpportunity.objects.select_related('prewriter').prefetch_related(
-        'oc_attachments', 'client_bids__client', 'client_bids__assignments__user', 'client_bids__proposal_files'
+        'oc_attachments', 'client_bids__client', 'client_bids__assignments__user',
+        'client_bids__proposal_files', 'client_bids__portal_credentials',
     ).get(pk=opportunity.pk)
+
+
+@transaction.atomic
+def transition_opportunity_status(opportunity: BidOpportunity, new_status: str, actor=None, request=None) -> None:
+    """Handle side-effects when BidOpportunity.status changes."""
+    old_status = opportunity.status
+
+    if old_status == new_status:
+        return
+
+    if new_status == 'pip' and old_status != 'pip':
+        _notify_oc_pending_if_needed(opportunity, actor)
+
+    write_audit(
+        actor=actor,
+        model_name='BidOpportunity',
+        object_id=opportunity.id,
+        action='status_changed',
+        old_state=old_status,
+        new_state=new_status,
+        request=request,
+    )
+
+
+def _notify_oc_pending_if_needed(opportunity: BidOpportunity, actor) -> None:
+    """Create a pending-action notification if the bid has no OC attachments."""
+    if opportunity.oc_attachments.exists():
+        return
+
+    recipient = opportunity.prewriter or actor
+    if not recipient:
+        return
+
+    from notifications.models import Notification
+    Notification.objects.create(
+        recipient=recipient,
+        actor=actor,
+        kind='bid_oc_pending',
+        title='OC document needed',
+        body=f'Bid "{opportunity.title}" was moved to PIP but has no OC document attached.',
+        link=f'/bids?opportunity_id={opportunity.id}',
+    )

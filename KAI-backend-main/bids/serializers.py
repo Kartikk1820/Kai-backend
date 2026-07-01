@@ -16,9 +16,14 @@ CLIENT_INFO_FIELDS = [
 
 
 class ClientSerializer(serializers.ModelSerializer):
+    linked_user_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='linked_user',
+        write_only=True, required=False, allow_null=True,
+    )
+
     class Meta:
         model = Client
-        fields = ['id', 'name', 'shortcode'] + CLIENT_INFO_FIELDS
+        fields = ['id', 'name', 'shortcode', 'linked_user_id'] + CLIENT_INFO_FIELDS
 
 
 class UserBidSerializer(serializers.ModelSerializer):
@@ -84,14 +89,27 @@ class ClientBidProposalFileSerializer(serializers.ModelSerializer):
         return obj.file.url
 
 
+class PortalCredentialSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PortalCredential
+        fields = [
+            'id', 'client_bid_id', 'state', 'agency', 'portal_name',
+            'username', 'password', 'link', 'notes', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
 class ClientBidSerializer(serializers.ModelSerializer):
     client = ClientSerializer(read_only=True)
     assignments = BidAssignmentSerializer(many=True, read_only=True)
     proposal_files = ClientBidProposalFileSerializer(many=True, read_only=True)
+    portal_credentials = PortalCredentialSerializer(many=True, read_only=True)
     opportunity_title = serializers.CharField(source='opportunity.title', read_only=True)
     opportunity_agency = serializers.CharField(source='opportunity.agency', read_only=True)
     opportunity_state = serializers.CharField(source='opportunity.state', read_only=True)
     opportunity_due_date = serializers.DateTimeField(source='opportunity.due_date', read_only=True)
+    opportunity_status = serializers.CharField(source='opportunity.status', read_only=True)
+    contract_value = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
 
     client_id = serializers.PrimaryKeyRelatedField(
         queryset=Client.objects.all(), source='client',
@@ -103,12 +121,14 @@ class ClientBidSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'opportunity_id', 'client', 'kc_brand', 'status',
             'portal_username', 'portal_password',
+            'portal_credentials',
             'assignments', 'proposal_files',
             'internal_deadline', 'submission_method',
-            'date_of_review', 'comments',
+            'date_of_review', 'comments', 'contract_value',
             'created_at', 'updated_at',
             'client_id',
-            'opportunity_title', 'opportunity_agency', 'opportunity_state', 'opportunity_due_date',
+            'opportunity_title', 'opportunity_agency', 'opportunity_state',
+            'opportunity_due_date', 'opportunity_status',
         ]
         read_only_fields = ['id', 'opportunity_id', 'created_at', 'updated_at']
 
@@ -128,20 +148,37 @@ class ClientBidSerializer(serializers.ModelSerializer):
         return data
 
 
-class PortalCredentialSerializer(serializers.ModelSerializer):
+# Slim serializer for bids nested inside ClientDetail (avoids heavy nesting)
+class ClientBidSummarySerializer(serializers.ModelSerializer):
+    portal_credentials = PortalCredentialSerializer(many=True, read_only=True)
+    opportunity_title = serializers.CharField(source='opportunity.title', read_only=True)
+    opportunity_agency = serializers.CharField(source='opportunity.agency', read_only=True)
+    opportunity_due_date = serializers.DateTimeField(source='opportunity.due_date', read_only=True)
+    opportunity_status = serializers.CharField(source='opportunity.status', read_only=True)
+    opportunity_solicitation = serializers.CharField(source='opportunity.solicitation_number', read_only=True)
+
     class Meta:
-        model = PortalCredential
-        fields = ['id', 'client_id', 'state', 'agency', 'portal_name', 'username', 'password', 'link', 'notes', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        model = ClientBid
+        fields = [
+            'id', 'opportunity_id', 'opportunity_title', 'opportunity_agency',
+            'opportunity_due_date', 'opportunity_status', 'opportunity_solicitation',
+            'kc_brand', 'status', 'portal_credentials', 'created_at',
+        ]
+        read_only_fields = fields
 
 
 class ClientDetailSerializer(serializers.ModelSerializer):
     portal_credentials = PortalCredentialSerializer(many=True, read_only=True)
+    client_bids = ClientBidSummarySerializer(many=True, read_only=True, source='clientbid_set')
     bid_count = serializers.SerializerMethodField()
+    linked_user = UserBidSerializer(read_only=True)
 
     class Meta:
         model = Client
-        fields = ['id', 'name', 'shortcode', 'bid_count', 'portal_credentials'] + CLIENT_INFO_FIELDS
+        fields = [
+            'id', 'name', 'shortcode', 'bid_count',
+            'linked_user', 'portal_credentials', 'client_bids',
+        ] + CLIENT_INFO_FIELDS
 
     def get_bid_count(self, obj):
         return obj.clientbid_set.count()
@@ -163,7 +200,29 @@ class BidOpportunitySerializer(serializers.ModelSerializer):
             'due_date', 'bid_link', 'category', 'source_date',
             'pre_bid_info', 'qa_notes', 'last_synced',
             'poc', 'award_date', 'prewriter', 'prewriter_id',
+            'status', 'cancellation_reason',
             'oc_attachments',
             'created_at', 'updated_at', 'client_bids',
         ]
         read_only_fields = ['id', 'source_date', 'last_synced', 'created_at', 'updated_at']
+
+    def validate(self, data):
+        new_status = data.get('status')
+        if new_status is None:
+            return data
+
+        instance = self.instance
+        old_status = instance.status if instance else 'draft'
+
+        # Only validate on actual status change
+        if new_status == old_status:
+            return data
+
+        if new_status == 'cancelled':
+            reason = data.get('cancellation_reason') or (instance.cancellation_reason if instance else '')
+            if not (reason or '').strip():
+                raise serializers.ValidationError(
+                    {'cancellation_reason': 'A cancellation reason is required.'}
+                )
+
+        return data

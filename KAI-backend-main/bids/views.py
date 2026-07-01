@@ -23,6 +23,7 @@ from .serializers import (
     ClientBidSerializer, BidAssignmentSerializer, UserBidSerializer, PortalCredentialSerializer,
     BidOpportunityAttachmentSerializer, ClientBidProposalFileSerializer,
 )
+from django.shortcuts import get_object_or_404
 
 logger = structlog.get_logger(__name__)
 User = get_user_model()
@@ -247,7 +248,7 @@ class BidOpportunityDetailView(generics.RetrieveUpdateDestroyAPIView):
         'oc_attachments',
         Prefetch('client_bids', queryset=ClientBid.objects.select_related('client').prefetch_related(
             Prefetch('assignments', queryset=BidAssignment.objects.select_related('user')),
-            'proposal_files',
+            'proposal_files', 'portal_credentials',
         ))
     )
     serializer_class = BidOpportunitySerializer
@@ -259,6 +260,14 @@ class BidOpportunityDetailView(generics.RetrieveUpdateDestroyAPIView):
         if method == 'DELETE':
             return [IsAuthenticated(), HasPermissionKey.of(BID_DELETE_OPPORTUNITY)()]
         return [IsAuthenticated(), HasPermissionKey.of(BID_VIEW_OPPORTUNITY)()]
+
+    def perform_update(self, serializer):
+        from .services import transition_opportunity_status
+        instance = self.get_object()
+        old_status = instance.status
+        updated = serializer.save()
+        if updated.status != old_status:
+            transition_opportunity_status(updated, updated.status, actor=self.request.user, request=self.request)
 
 
 # ─── 6. Update ClientBid ──────────────────────────────────────────────────────
@@ -427,24 +436,37 @@ class BidSyncNowView(views.APIView):
 
 # ─── 9. Clients list + create ─────────────────────────────────────────────────
 
+def _client_prefetch_qs():
+    return Client.objects.select_related('linked_user').prefetch_related(
+        'portal_credentials',
+        Prefetch(
+            'clientbid_set',
+            queryset=ClientBid.objects.select_related('opportunity').prefetch_related('portal_credentials'),
+        ),
+    )
+
+
 class ClientListCreateView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        clients = Client.objects.prefetch_related('portal_credentials').all()
+        clients = _client_prefetch_qs().all()
         return Response(ClientDetailSerializer(clients, many=True).data)
 
     def post(self, request):
         serializer = ClientSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         client = serializer.save()
-        return Response(ClientDetailSerializer(client).data, status=status.HTTP_201_CREATED)
+        return Response(ClientDetailSerializer(_client_prefetch_qs().get(pk=client.pk)).data, status=status.HTTP_201_CREATED)
 
 
 class ClientRetrieveUpdateView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
-    queryset = Client.objects.prefetch_related('portal_credentials').all()
+    queryset = _client_prefetch_qs()
     serializer_class = ClientDetailSerializer
+
+    def get_queryset(self):
+        return _client_prefetch_qs()
 
     def get_serializer_class(self):
         if self.request.method in ('PUT', 'PATCH'):
@@ -457,10 +479,10 @@ class ClientRetrieveUpdateView(generics.RetrieveUpdateAPIView):
         serializer = ClientSerializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         client = serializer.save()
-        return Response(ClientDetailSerializer(Client.objects.prefetch_related('portal_credentials').get(pk=client.pk)).data)
+        return Response(ClientDetailSerializer(_client_prefetch_qs().get(pk=client.pk)).data)
 
 
-# ─── 10. Portal credentials ────────────────────────────────────────────────────
+# ─── 10. Portal credentials under Client (legacy — kept for old client-level creds) ───
 
 class PortalCredentialListCreateView(views.APIView):
     permission_classes = [IsAuthenticated]
@@ -470,12 +492,11 @@ class PortalCredentialListCreateView(views.APIView):
         return Response(PortalCredentialSerializer(creds, many=True).data)
 
     def post(self, request, client_pk):
-        get_object_or_404 = __import__('django.shortcuts', fromlist=['get_object_or_404']).get_object_or_404
         client = get_object_or_404(Client, pk=client_pk)
         serializer = PortalCredentialSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         cred = serializer.save(client=client)
-        write_audit = __import__('core.services', fromlist=['write_audit']).write_audit
+        from core.services import write_audit
         write_audit(actor=request.user, model_name='PortalCredential', object_id=cred.id, action='created', request=request)
         return Response(PortalCredentialSerializer(cred).data, status=status.HTTP_201_CREATED)
 
@@ -484,7 +505,6 @@ class PortalCredentialDetailView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def _get(self, client_pk, pk):
-        from django.shortcuts import get_object_or_404
         return get_object_or_404(PortalCredential, pk=pk, client_id=client_pk)
 
     def patch(self, request, client_pk, pk):
@@ -500,13 +520,51 @@ class PortalCredentialDetailView(views.APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+# ─── 10b. Portal credentials under ClientBid (primary path) ─────────────────
+
+class ClientBidCredentialListCreateView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, bid_pk):
+        get_object_or_404(ClientBid, pk=bid_pk)
+        creds = PortalCredential.objects.filter(client_bid_id=bid_pk)
+        return Response(PortalCredentialSerializer(creds, many=True).data)
+
+    def post(self, request, bid_pk):
+        client_bid = get_object_or_404(ClientBid, pk=bid_pk)
+        serializer = PortalCredentialSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cred = serializer.save(client_bid=client_bid)
+        from core.services import write_audit
+        write_audit(actor=request.user, model_name='PortalCredential', object_id=cred.id, action='created', request=request)
+        return Response(PortalCredentialSerializer(cred).data, status=status.HTTP_201_CREATED)
+
+
+class ClientBidCredentialDetailView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get(self, bid_pk, pk):
+        return get_object_or_404(PortalCredential, pk=pk, client_bid_id=bid_pk)
+
+    def patch(self, request, bid_pk, pk):
+        cred = self._get(bid_pk, pk)
+        serializer = PortalCredentialSerializer(cred, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(PortalCredentialSerializer(cred).data)
+
+    def delete(self, request, bid_pk, pk):
+        cred = self._get(bid_pk, pk)
+        cred.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 # ─── 11. Bid Assignments ───────────────────────────────────────────────────────
 
 class BidAssignmentListCreateView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, bid_pk):
-        from django.shortcuts import get_object_or_404
         bid = get_object_or_404(ClientBid, pk=bid_pk)
         serializer = BidAssignmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -521,13 +579,11 @@ class BidAssignmentDetailView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, pk):
-        from django.shortcuts import get_object_or_404
         assignment = get_object_or_404(BidAssignment, pk=pk)
         assignment.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def patch(self, request, pk):
-        from django.shortcuts import get_object_or_404
         assignment = get_object_or_404(BidAssignment, pk=pk)
         serializer = BidAssignmentSerializer(assignment, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -541,13 +597,11 @@ class BidOpportunityAttachmentListCreateView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, opp_pk):
-        from django.shortcuts import get_object_or_404
         get_object_or_404(BidOpportunity, pk=opp_pk)
         attachments = BidOpportunityAttachment.objects.filter(opportunity_id=opp_pk)
         return Response(BidOpportunityAttachmentSerializer(attachments, many=True, context={'request': request}).data)
 
     def post(self, request, opp_pk):
-        from django.shortcuts import get_object_or_404
         opp = get_object_or_404(BidOpportunity, pk=opp_pk)
         serializer = BidOpportunityAttachmentSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
@@ -559,7 +613,6 @@ class BidOpportunityAttachmentDetailView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, opp_pk, pk):
-        from django.shortcuts import get_object_or_404
         att = get_object_or_404(BidOpportunityAttachment, pk=pk, opportunity_id=opp_pk)
         att.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -571,13 +624,11 @@ class ClientBidProposalFileListCreateView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, bid_pk):
-        from django.shortcuts import get_object_or_404
         get_object_or_404(ClientBid, pk=bid_pk)
         files = ClientBidProposalFile.objects.filter(bid_id=bid_pk)
         return Response(ClientBidProposalFileSerializer(files, many=True, context={'request': request}).data)
 
     def post(self, request, bid_pk):
-        from django.shortcuts import get_object_or_404
         bid = get_object_or_404(ClientBid, pk=bid_pk)
         serializer = ClientBidProposalFileSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
