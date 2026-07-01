@@ -79,10 +79,10 @@ class Task(models.Model):
         ('lowest', 'Lowest'),
     ]
     TYPE_CHOICES = [
-        ('story', 'Story'),
         ('task', 'Task'),
-        ('bug', 'Bug'),
-        ('epic', 'Epic'),
+        ('requirement', 'Requirement'),
+        ('issue', 'Issue'),
+        ('bid', 'Bid'),
     ]
 
     key = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
@@ -108,7 +108,7 @@ class Task(models.Model):
         related_name='tasks',
     )
 
-    task_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default='task')
+    task_type = models.CharField(max_length=15, choices=TYPE_CHOICES, default='task')
     story_points = models.PositiveSmallIntegerField(null=True, blank=True)
     sprint = models.ForeignKey(
         Sprint, null=True, blank=True, on_delete=models.SET_NULL, related_name='tasks'
