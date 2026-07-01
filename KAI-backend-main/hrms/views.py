@@ -637,8 +637,10 @@ class EmployeePresenceView(APIView):
         else:
             from tasks.models import Team
             from django.db.models import Q
-            team_ids = Team.objects.filter(Q(members=user) | Q(lead=user)).values_list('id', flat=True)
-            uid_qs = Team.objects.filter(id__in=team_ids).values_list('members__id', flat=True).distinct()
+            team_ids = list(Team.objects.filter(Q(members=user) | Q(lead=user)).values_list('id', flat=True))
+            member_ids = set(Team.objects.filter(id__in=team_ids).values_list('members__id', flat=True))
+            lead_ids = set(Team.objects.filter(id__in=team_ids).exclude(lead=None).values_list('lead_id', flat=True))
+            uid_qs = list(member_ids | lead_ids)
         result = {}
         for uid in uid_qs:
             result[str(uid)] = 'present' if uid in clocked_in_ids else 'offline'
@@ -659,9 +661,10 @@ class EmployeeListView(generics.ListAPIView):
             return qs
         from tasks.models import Team
         from django.db.models import Q
-        team_ids = Team.objects.filter(Q(members=user) | Q(lead=user)).values_list('id', flat=True)
-        member_ids = Team.objects.filter(id__in=team_ids).values_list('members__id', flat=True).distinct()
-        return qs.filter(id__in=member_ids)
+        team_ids = list(Team.objects.filter(Q(members=user) | Q(lead=user)).values_list('id', flat=True))
+        member_ids = set(Team.objects.filter(id__in=team_ids).values_list('members__id', flat=True))
+        lead_ids = set(Team.objects.filter(id__in=team_ids).exclude(lead=None).values_list('lead_id', flat=True))
+        return qs.filter(id__in=member_ids | lead_ids)
 
 
 class EmployeeDetailView(generics.RetrieveUpdateAPIView):
